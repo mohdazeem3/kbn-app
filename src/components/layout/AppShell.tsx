@@ -167,8 +167,18 @@ function Brand({ compact = false }: { compact?: boolean }) {
 
 function OwnerCard() {
   const { user, signOut } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
   const email = user?.email ?? 'Signed in';
   const initials = email[0]?.toUpperCase() ?? '?';
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  };
 
   return (
     <div className="mt-6 rounded-xl bg-cream-100 px-4 py-3">
@@ -183,10 +193,11 @@ function OwnerCard() {
         <HandCoins className="ml-auto h-5 w-5 shrink-0 text-leaf-400" aria-hidden />
       </div>
       <button
-        onClick={() => void signOut()}
-        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-leaf-200 bg-white px-4 py-2.5 text-base font-bold text-leaf-800 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-800"
+        onClick={() => void handleSignOut()}
+        disabled={signingOut}
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-leaf-200 bg-white px-4 py-2.5 text-base font-bold text-leaf-800 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <LogOut className="h-5 w-5" aria-hidden /> Sign Out
+        <LogOut className="h-5 w-5" aria-hidden /> {signingOut ? 'Signing out…' : 'Sign Out'}
       </button>
     </div>
   );
