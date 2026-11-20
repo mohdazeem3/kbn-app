@@ -57,11 +57,10 @@ export function AppShell({ page, onNavigate, children }: ShellProps) {
               setMobileOpen(false);
             }}
             aria-current={active ? 'page' : undefined}
-            className={`flex items-center gap-4 rounded-xl px-4 py-3.5 text-left transition-colors duration-150 ${
-              active
+            className={`flex items-center gap-4 rounded-xl px-4 py-3.5 text-left transition-colors duration-150 ${active
                 ? 'bg-leaf-600 text-white shadow-sm'
                 : 'text-leaf-900 hover:bg-leaf-100'
-            }`}
+              }`}
           >
             <item.icon
               className={`h-6 w-6 shrink-0 ${active ? 'text-white' : 'text-leaf-600'}`}
@@ -71,9 +70,8 @@ export function AppShell({ page, onNavigate, children }: ShellProps) {
             <span className="min-w-0">
               <span className="block text-base font-bold leading-tight">{item.label}</span>
               <span
-                className={`block text-sm leading-tight ${
-                  active ? 'text-leaf-100' : 'text-leaf-600'
-                }`}
+                className={`block text-sm leading-tight ${active ? 'text-leaf-100' : 'text-leaf-600'
+                  }`}
               >
                 {item.desc}
               </span>
@@ -159,7 +157,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
       </span>
       <div>
         <p className="font-display text-lg font-semibold leading-tight text-leaf-950">
-          FruitWholesale
+          KBN MART
         </p>
         <p className={`text-sm font-semibold uppercase tracking-wide ${compact ? 'text-leaf-600' : 'text-leaf-500'}`}>
           Manager

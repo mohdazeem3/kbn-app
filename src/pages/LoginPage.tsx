@@ -60,7 +60,7 @@ export function LoginPage() {
             <Leaf className="h-9 w-9" strokeWidth={2.25} aria-hidden />
           </span>
           <h1 className="font-display mt-5 text-3xl font-semibold text-leaf-950">
-            FruitWholesale Manager
+            KBN MART
           </h1>
           <p className="mt-2 text-lg text-leaf-700">
             Sign in to manage your stock, sales and customers.
