@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Dashboard } from '@/pages/Dashboard';
 import { NewSale } from '@/pages/NewSale';
+import { BillsPage } from '@/pages/BillsPage';
 import { ReceiveStock } from '@/pages/ReceiveStock';
 import { StockPage } from '@/pages/StockPage';
+import { FruitsPage } from '@/pages/FruitsPage';
 import { CustomersPage } from '@/pages/CustomersPage';
 import { SuppliersPage } from '@/pages/SuppliersPage';
 import { LoginPage } from '@/pages/LoginPage';
@@ -36,11 +38,13 @@ function AppPages() {
   return (
     <AppShell page={page} onNavigate={setPage}>
       {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
-      {page === 'receive' && <ReceiveStock />}
-      {page === 'sale' && <NewSale />}
+      {page === 'receive' && <ReceiveStock onNavigate={setPage} />}
+      {page === 'sale' && <NewSale onNavigate={setPage} />}
+      {page === 'bills' && <BillsPage onNavigate={setPage} />}
       {page === 'stock' && <StockPage onNavigate={setPage} />}
+      {page === 'fruits' && <FruitsPage />}
       {page === 'customers' && <CustomersPage />}
-      {page === 'suppliers' && <SuppliersPage />}
+      {page === 'suppliers' && <SuppliersPage onNavigate={setPage} />}
     </AppShell>
   );
 }

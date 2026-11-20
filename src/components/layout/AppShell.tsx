@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Apple,
   BookUser,
   Boxes,
   HandCoins,
@@ -7,6 +8,7 @@ import {
   LogOut,
   Menu,
   PackageOpen,
+  ReceiptText,
   ShoppingCart,
   Sprout,
   Truck,
@@ -27,7 +29,9 @@ const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, desc: "Today's overview" },
   { id: 'receive', label: 'Receive Stock', icon: PackageOpen, desc: 'Record new arrivals' },
   { id: 'sale', label: 'New Sale', icon: ShoppingCart, desc: 'Bill a customer' },
+  { id: 'bills', label: 'Sales History', icon: ReceiptText, desc: 'Past bills & receipts' },
   { id: 'stock', label: 'Stock', icon: Boxes, desc: 'What is in the godown' },
+  { id: 'fruits', label: 'Fruits & Varieties', icon: Apple, desc: 'Categories & grades' },
   { id: 'customers', label: 'Customers', icon: BookUser, desc: 'Shops you supply' },
   { id: 'suppliers', label: 'Suppliers', icon: Truck, desc: 'Your mandi sources' },
 ];
@@ -85,7 +89,7 @@ export function AppShell({ page, onNavigate, children }: ShellProps) {
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-leaf-100 bg-white px-5 py-6 lg:flex">
         <Brand />
-        <div className="mt-8 flex-1">{navList}</div>
+        <div className="mt-8 flex-1 overflow-y-auto">{navList}</div>
         <OwnerCard />
       </aside>
 
