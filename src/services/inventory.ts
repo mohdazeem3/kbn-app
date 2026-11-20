@@ -91,13 +91,15 @@ export function generateIdempotencyKey(): string {
  * Cash / UPI / split immediate supplier payment via receive_stock_delivery RPC.
  */
 export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Promise<string> {
-  if (!input.fruit_id) throw new Error('Please select a fruit category.');
-  if (!input.supplier_id) throw new Error('Please select a supplier for this fruit.');
+  if (!input.supplier_id) throw new Error('Please select a supplier for this delivery.');
   if (!input.received_date) throw new Error('Please choose the received date.');
   if (!input.items.length) throw new Error('Add at least one variety line to this delivery.');
 
   let computedTotal = 0;
   const payloadItems = input.items.map((item, idx) => {
+    if (!item.fruit_id) {
+      throw new Error(`Select a fruit category on line ${idx + 1}.`);
+    }
     if (!item.variety_id) {
       throw new Error(`Select a variety on line ${idx + 1}.`);
     }
@@ -110,6 +112,7 @@ export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Pr
     const rate = Math.round(item.purchase_rate * 100) / 100;
     computedTotal += Math.round(item.boxes * rate * 100) / 100;
     return {
+      fruit_id: item.fruit_id,
       variety_id: item.variety_id,
       boxes: item.boxes,
       purchase_rate: rate,
@@ -131,7 +134,7 @@ export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Pr
 
   const { data, error } = await supabase.rpc('receive_stock_delivery', {
     p_supplier_id: input.supplier_id,
-    p_fruit_id: input.fruit_id,
+    p_fruit_id: input.fruit_id ?? null,
     p_received_date: input.received_date,
     p_items: payloadItems,
     p_note: input.note?.trim() || null,

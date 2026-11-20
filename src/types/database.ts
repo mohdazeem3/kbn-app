@@ -73,6 +73,7 @@ export interface CustomerInput {
 export type PaymentStatus = 'paid' | 'partial' | 'unpaid' | 'cancelled';
 
 export interface ReceiveStockItemInput {
+  fruit_id: string;
   variety_id: string;
   boxes: number;
   purchase_rate: number;
@@ -80,7 +81,7 @@ export interface ReceiveStockItemInput {
 
 export interface ReceiveStockDeliveryInput {
   supplier_id: string;
-  fruit_id: string;
+  fruit_id?: string | null;
   received_date: string;
   items: ReceiveStockItemInput[];
   note: string | null;
