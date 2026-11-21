@@ -130,21 +130,23 @@ export function AppShell({ page, onNavigate, children }: ShellProps) {
       <main className="px-4 py-6 sm:px-6 lg:ml-72 lg:px-10 lg:py-8">{children}</main>
 
       {/* Mobile quick action bar */}
-      <div className="sticky bottom-0 z-20 flex border-t border-leaf-100 bg-white p-3 lg:hidden">
-        <button
-          onClick={() => onNavigate('receive')}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf-600 py-3 text-base font-bold text-white active:bg-leaf-700"
-        >
-          <PackageOpen className="h-5 w-5" aria-hidden /> Receive Stock
-        </button>
-        <div className="w-3" />
-        <button
-          onClick={() => onNavigate('sale')}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mango-500 py-3 text-base font-bold text-white active:bg-mango-600"
-        >
-          <ShoppingCart className="h-5 w-5" aria-hidden /> New Sale
-        </button>
-      </div>
+      {page !== 'receive' && page !== 'sale' && (
+        <div className="sticky bottom-0 z-20 flex border-t border-leaf-100 bg-white p-3 lg:hidden">
+          <button
+            onClick={() => onNavigate('receive')}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf-600 py-3 text-base font-bold text-white active:bg-leaf-700"
+          >
+            <PackageOpen className="h-5 w-5" aria-hidden /> Receive Stock
+          </button>
+          <div className="w-3" />
+          <button
+            onClick={() => onNavigate('sale')}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-mango-500 py-3 text-base font-bold text-white active:bg-mango-600"
+          >
+            <ShoppingCart className="h-5 w-5" aria-hidden /> New Sale
+          </button>
+        </div>
+      )}
     </div>
   );
 }

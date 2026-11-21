@@ -4,6 +4,7 @@ import {
   Boxes,
   IndianRupee,
   Loader2,
+  Printer,
   Smartphone,
   Truck,
 } from 'lucide-react';
@@ -16,6 +17,7 @@ import {
   Modal,
   TextInput,
 } from '@/components/ui';
+import { PrintableBillModal } from '@/components/sales/PrintableBillModal';
 import { formatDisplayDate, getLocalIsoDate } from '@/services/inventory';
 import { cancelBill, getBillDetail } from '@/services/sales';
 import type { BillDetail, PaymentMode, PaymentStatus } from '@/types/database';
@@ -52,6 +54,7 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
   const [refundNote, setRefundNote] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [showPrint, setShowPrint] = useState(false);
 
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true);
@@ -136,10 +139,18 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
         <div className="space-y-5">
           {/* Bill Header Totals */}
           <div className="rounded-xl bg-cream-100 p-4">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Badge tone={statusTone(detail.bill.payment_status)}>
                 {statusLabel(detail.bill.payment_status)}
               </Badge>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Printer}
+                onClick={() => setShowPrint(true)}
+              >
+                Print Receipt
+              </Button>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-3 text-center">
@@ -450,6 +461,14 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
           )}
         </div>
       ) : null}
+
+      {showPrint && detail && (
+        <PrintableBillModal
+          billId={detail.bill.bill_id}
+          initialBillDetail={detail}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
     </Modal>
   );
 }

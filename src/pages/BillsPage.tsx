@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Calendar, Eye, RotateCw, Search, ShoppingCart } from 'lucide-react';
+import { Calendar, Eye, Printer, RotateCw, Search, ShoppingCart } from 'lucide-react';
 import {
   AlertBanner,
   Badge,
@@ -12,6 +12,7 @@ import {
   TextInput,
 } from '@/components/ui';
 import { BillDetailModal } from '@/components/sales/BillDetailModal';
+import { PrintableBillModal } from '@/components/sales/PrintableBillModal';
 import { formatDisplayDate } from '@/services/inventory';
 import { listBills } from '@/services/sales';
 import type { BillBalance, PaymentStatus } from '@/types/database';
@@ -48,6 +49,7 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [dateTo, setDateTo] = useState('');
 
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
+  const [printBillId, setPrintBillId] = useState<string | null>(null);
 
   const loadBills = useCallback(async () => {
     setLoading(true);
@@ -315,13 +317,23 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                         </div>
                       </div>
 
-                      <Button
-                        variant="secondary"
-                        icon={Eye}
-                        onClick={() => setSelectedBillId(bill.bill_id)}
-                      >
-                        View Details
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          icon={Printer}
+                          onClick={() => setPrintBillId(bill.bill_id)}
+                          title="Print Receipt"
+                        >
+                          Print
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          icon={Eye}
+                          onClick={() => setSelectedBillId(bill.bill_id)}
+                        >
+                          View Details
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -341,6 +353,13 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
           void loadBills();
         }}
       />
+
+      {printBillId && (
+        <PrintableBillModal
+          billId={printBillId}
+          onClose={() => setPrintBillId(null)}
+        />
+      )}
     </div>
   );
 }

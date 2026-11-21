@@ -6,6 +6,7 @@ import {
   Loader2,
   PackageOpen,
   Plus,
+  Printer,
   ReceiptText,
   Trash2,
   UserCheck,
@@ -13,27 +14,33 @@ import {
 } from 'lucide-react';
 import {
   AlertBanner,
-  Badge,
   Button,
   Card,
   EmptyState,
-  FieldWrap,
   LoadingCard,
   MoneyInput,
   SearchSelect,
-  SectionHeader,
   TextInput,
 } from '@/components/ui';
 import type { SearchOption } from '@/components/ui';
 import { listCustomers } from '@/services/masterData';
 import {
-  formatDisplayDate,
   generateIdempotencyKey,
   getLocalIsoDate,
   listStockBatches,
 } from '@/services/inventory';
 import { createBill } from '@/services/sales';
-import type { BillBalance, Customer, StockBatchView } from '@/types/database';
+import { listCustomerBalances } from '@/services/accounts';
+import {
+  PrintableBillModal,
+  type CustomerBalanceSummary,
+} from '@/components/sales/PrintableBillModal';
+import type {
+  BillBalance,
+  Customer,
+  CustomerBalance,
+  StockBatchView,
+} from '@/types/database';
 import type { Page } from './pageTypes';
 
 interface SaleLine {
@@ -46,6 +53,7 @@ interface SaleLine {
 }
 
 type BuyerKind = 'cash_customer' | 'registered';
+type PaymentChoice = 'cash' | 'upi' | 'credit' | 'split';
 
 let nextSaleLineKey = 1;
 const createEmptySaleLine = (): SaleLine => ({
@@ -55,6 +63,28 @@ const createEmptySaleLine = (): SaleLine => ({
   sellRate: '',
   allocations: {},
 });
+
+const isSaleLineBlank = (line: SaleLine): boolean => {
+  const hasAllocations = Object.values(line.allocations).some(
+    (v) => v.trim() !== '' && v.trim() !== '0'
+  );
+  return !line.fruitId && !line.varietyId && !line.sellRate.trim() && !hasAllocations;
+};
+
+const ensureTrailingEmptySaleLine = (currentLines: SaleLine[]): SaleLine[] => {
+  const result = [...currentLines];
+  while (
+    result.length > 1 &&
+    isSaleLineBlank(result[result.length - 1]) &&
+    isSaleLineBlank(result[result.length - 2])
+  ) {
+    result.pop();
+  }
+  if (result.length === 0 || !isSaleLineBlank(result[result.length - 1])) {
+    result.push(createEmptySaleLine());
+  }
+  return result;
+};
 
 const WHOLE_POSITIVE_INT = /^[1-9]\d*$/;
 const WHOLE_NON_NEGATIVE_INT = /^\d+$/;
@@ -81,16 +111,19 @@ interface NewSaleProps {
 
 export function NewSale({ onNavigate }: NewSaleProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerBalances, setCustomerBalances] = useState<CustomerBalance[]>([]);
   const [availableBatches, setAvailableBatches] = useState<StockBatchView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [buyerKind, setBuyerKind] = useState<BuyerKind>('registered');
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerPhone, setCustomerPhone] = useState('');
   const [billDate, setBillDate] = useState<string>(() => getLocalIsoDate());
   const [billNote, setBillNote] = useState('');
   const [lines, setLines] = useState<SaleLine[]>([createEmptySaleLine()]);
 
+  const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('cash');
   const [paidCash, setPaidCash] = useState('');
   const [paidUpi, setPaidUpi] = useState('');
 
@@ -99,13 +132,23 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   const [formError, setFormError] = useState<string | null>(null);
   const [savedBill, setSavedBill] = useState<BillBalance | null>(null);
 
+  // Printing State
+  const [printBillId, setPrintBillId] = useState<string | null>(null);
+  const [printBalanceSummary, setPrintBalanceSummary] = useState<CustomerBalanceSummary | null>(null);
+  const [autoPrintTrigger, setAutoPrintTrigger] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [custList, batchList] = await Promise.all([listCustomers(), listStockBatches()]);
+      const [custList, batchList, balList] = await Promise.all([
+        listCustomers(),
+        listStockBatches(),
+        listCustomerBalances(),
+      ]);
       setCustomers(custList.filter((c) => c.active));
       setAvailableBatches(batchList.filter((b) => b.boxes_remaining > 0));
+      setCustomerBalances(balList);
     } catch (err) {
       setLoadError(
         err instanceof Error ? err.message : 'Could not load customers and available stock.'
@@ -129,10 +172,17 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     [customers]
   );
 
-  const selectedCustomer = useMemo(
-    () => customers.find((c) => c.id === customerId) ?? null,
-    [customers, customerId]
+  // Live customer balance from ledger
+  const customerBalanceRecord = useMemo(
+    () => (customerId ? customerBalances.find((b) => b.customer_id === customerId) ?? null : null),
+    [customerBalances, customerId]
   );
+
+  // 1. Opening Balance before this new bill
+  const openingBalance = useMemo(() => {
+    if (buyerKind === 'cash_customer' || !customerId || !customerBalanceRecord) return 0;
+    return customerBalanceRecord.outstanding_balance;
+  }, [buyerKind, customerId, customerBalanceRecord]);
 
   // Fruits that currently have available stock boxes
   const fruitOptions: SearchOption[] = useMemo(() => {
@@ -201,24 +251,36 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   };
 
   const updateLine = (key: number, patch: Partial<SaleLine>) => {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+    setLines((prev) => {
+      const updated = prev.map((l) => (l.key === key ? { ...l, ...patch } : l));
+      return ensureTrailingEmptySaleLine(updated);
+    });
     setFormError(null);
   };
 
   const handleFruitChange = (key: number, nextFruitId: string) => {
-    updateLine(key, {
-      fruitId: nextFruitId,
-      varietyId: null,
-      allocations: {},
+    setLines((prev) => {
+      const updated = prev.map((l) =>
+        l.key === key
+          ? {
+              ...l,
+              fruitId: nextFruitId,
+              varietyId: null,
+              allocations: {},
+            }
+          : l
+      );
+      return ensureTrailingEmptySaleLine(updated);
     });
+    setFormError(null);
   };
 
   const handleVarietyChange = (key: number, fruitId: string | null, nextVarietyId: string) => {
     const matchingBatch = availableBatches.find(
       (b) => b.fruit_id === fruitId && b.variety_id === nextVarietyId
     );
-    setLines((prev) =>
-      prev.map((l) => {
+    setLines((prev) => {
+      const updated = prev.map((l) => {
         if (l.key !== key) return l;
         const suggested =
           !l.sellRate.trim() && matchingBatch?.default_sell_rate
@@ -230,30 +292,54 @@ export function NewSale({ onNavigate }: NewSaleProps) {
           sellRate: suggested,
           allocations: {},
         };
-      })
-    );
+      });
+      return ensureTrailingEmptySaleLine(updated);
+    });
     setFormError(null);
   };
 
   const handleBatchAllocationChange = (lineKey: number, batchId: string, rawValue: string) => {
-    setLines((prev) =>
-      prev.map((l) =>
+    setLines((prev) => {
+      const updated = prev.map((l) =>
         l.key === lineKey ? { ...l, allocations: { ...l.allocations, [batchId]: rawValue } } : l
-      )
-    );
+      );
+      return ensureTrailingEmptySaleLine(updated);
+    });
     setFormError(null);
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptySaleLine()]);
+    setLines((prev) => {
+      if (prev.length > 0 && isSaleLineBlank(prev[prev.length - 1])) {
+        return prev;
+      }
+      return [...prev, createEmptySaleLine()];
+    });
+    setFormError(null);
   };
 
   const removeLine = (key: number) => {
-    setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== key)));
+    setLines((prev) => {
+      const filtered = prev.filter((l) => l.key !== key);
+      return ensureTrailingEmptySaleLine(filtered);
+    });
+    setFormError(null);
   };
 
   const lineSummaries = useMemo(() => {
     return lines.map((line) => {
+      if (isSaleLineBlank(line)) {
+        return {
+          key: line.key,
+          fruitName: '',
+          varietyName: '',
+          totalBoxes: 0,
+          lineTotal: 0,
+          hasInvalidBox: false,
+          hasOverAlloc: false,
+        };
+      }
+
       let totalBoxes = 0;
       let hasInvalidBox = false;
       let hasOverAlloc = false;
@@ -298,11 +384,14 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     });
   }, [lines, availableBatches, totalAllocatedByBatch]);
 
+  // 2. Bill Amount (Subtotal)
   const { totalBoxes, subtotal, hasAnyStockIssue } = useMemo(() => {
     let boxes = 0;
     let sum = 0;
     let stockIssue = false;
-    for (const s of lineSummaries) {
+    for (let i = 0; i < lines.length; i++) {
+      if (isSaleLineBlank(lines[i])) continue;
+      const s = lineSummaries[i];
       boxes += s.totalBoxes;
       sum += s.lineTotal;
       if (s.hasInvalidBox || s.hasOverAlloc) stockIssue = true;
@@ -312,47 +401,71 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       subtotal: Math.round(sum * 100) / 100,
       hasAnyStockIssue: stockIssue,
     };
-  }, [lineSummaries]);
+  }, [lines, lineSummaries]);
 
+  // Payment Calculations
   const cashNum = parseNonNegativeMoney(paidCash);
   const upiNum = parseNonNegativeMoney(paidUpi);
   const paymentNumbersValid = !Number.isNaN(cashNum) && !Number.isNaN(upiNum);
+
+  // 3. Paid Amount
   const totalPaid = paymentNumbersValid ? Math.round((cashNum + upiNum) * 100) / 100 : 0;
+
+  // 4. Closing Balance Calculation
+  // For Registered: Closing Balance = Opening Balance + Bill Amount - Paid Amount
+  // For Cash Customer: Closing Balance = 0 (Must pay full in cash/upi)
+  const closingBalance = useMemo(() => {
+    if (buyerKind === 'cash_customer') return 0;
+    return Math.round((openingBalance + subtotal - totalPaid) * 100) / 100;
+  }, [buyerKind, openingBalance, subtotal, totalPaid]);
+
   const creditAmount = Math.round((subtotal - totalPaid) * 100) / 100;
   const isOverpaid = paymentNumbersValid && Math.round(totalPaid * 100) > Math.round(subtotal * 100);
   const isCashCustomerWithCredit =
     buyerKind === 'cash_customer' && subtotal > 0 && Math.round(creditAmount * 100) > 0;
+
+  // Payment mode button handlers
+  const handleSelectPaymentChoice = (choice: PaymentChoice) => {
+    setPaymentChoice(choice);
+    setFormError(null);
+    if (choice === 'cash') {
+      setPaidCash(subtotal > 0 ? String(subtotal) : '');
+      setPaidUpi('');
+    } else if (choice === 'upi') {
+      setPaidCash('');
+      setPaidUpi(subtotal > 0 ? String(subtotal) : '');
+    } else if (choice === 'credit') {
+      if (buyerKind === 'cash_customer') return;
+      setPaidCash('');
+      setPaidUpi('');
+    }
+  };
 
   const handleBuyerKindChange = (next: BuyerKind) => {
     setBuyerKind(next);
     setFormError(null);
     if (next === 'cash_customer') {
       setCustomerId(null);
-      // Pre-fill full cash if no payment entered yet
-      if (subtotal > 0 && totalPaid === 0) {
+      setCustomerPhone('');
+      if (paymentChoice === 'credit') {
+        setPaymentChoice('cash');
+      }
+      if (subtotal > 0) {
         setPaidCash(String(subtotal));
         setPaidUpi('');
       }
     }
   };
 
-  const applyPresetFullCash = () => {
-    setPaidCash(subtotal > 0 ? String(subtotal) : '');
-    setPaidUpi('');
+  const handleCustomerChange = (id: string | null) => {
+    setCustomerId(id);
     setFormError(null);
-  };
-
-  const applyPresetFullUpi = () => {
-    setPaidCash('');
-    setPaidUpi(subtotal > 0 ? String(subtotal) : '');
-    setFormError(null);
-  };
-
-  const applyPresetFullCredit = () => {
-    if (buyerKind === 'cash_customer') return;
-    setPaidCash('');
-    setPaidUpi('');
-    setFormError(null);
+    if (!id) {
+      setCustomerPhone('');
+      return;
+    }
+    const cust = customers.find((c) => c.id === id);
+    setCustomerPhone(cust?.phone ?? '');
   };
 
   const validateAndBuildPayload = () => {
@@ -362,14 +475,16 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     if (!billDate) {
       throw new Error('Choose the bill date.');
     }
-    if (!lines.length) {
+
+    const activeLines = lines.filter((l) => !isSaleLineBlank(l));
+    if (activeLines.length === 0) {
       throw new Error('Add at least one sale item.');
     }
 
     const batchMap = new Map(availableBatches.map((b) => [b.batch_id, b]));
     const globalBatchUsage = new Map<string, number>();
 
-    const items = lines.map((line, idx) => {
+    const items = activeLines.map((line, idx) => {
       const lineNum = idx + 1;
       if (!line.fruitId || !line.varietyId) {
         throw new Error(`Item ${lineNum}: select both a fruit category and variety/grade.`);
@@ -406,7 +521,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       }
 
       if (cleanAllocs.length === 0 || lineBoxes <= 0) {
-        throw new Error(`Item ${lineNum}: manually allocate at least 1 box from an available stock batch.`);
+        throw new Error(`Item ${lineNum}: allocate at least 1 box from an available stock batch.`);
       }
 
       return {
@@ -443,8 +558,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     };
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveBill = async (shouldPrint: boolean) => {
     setFormError(null);
     setSavedBill(null);
 
@@ -456,6 +570,14 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       return;
     }
 
+    // Preserve snapshot of balance for printing before resetting state
+    const balanceSnapshot: CustomerBalanceSummary = {
+      openingBalance,
+      billAmount: subtotal,
+      paidAmount: totalPaid,
+      closingBalance,
+    };
+
     setSaving(true);
     try {
       const created = await createBill(payload);
@@ -464,8 +586,17 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       setPaidCash('');
       setPaidUpi('');
       setBillNote('');
+      setCustomerPhone('');
       setIdempotencyKey(generateIdempotencyKey());
-      // Refresh available stock to immediately reflect deducted boxes
+
+      // If "Save & Print" was triggered, open the print modal immediately
+      if (shouldPrint) {
+        setPrintBalanceSummary(balanceSnapshot);
+        setPrintBillId(created.bill_id);
+        setAutoPrintTrigger(true);
+      }
+
+      // Refresh stock and balances
       void loadData();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not save bill.');
@@ -475,33 +606,44 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   };
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
-        title="New Sale"
-        action={
-          onNavigate ? (
-            <Button variant="secondary" size="lg" icon={ReceiptText} onClick={() => onNavigate('bills')}>
-              Sales History
-            </Button>
-          ) : undefined
-        }
-      />
-
+    <div className="space-y-3">
+      {/* Success Banner */}
       {savedBill && (
         <AlertBanner
           tone="success"
-          message={`Saved Bill ${savedBill.bill_no} for ${savedBill.customer_name_snapshot} — Total ₹${savedBill.subtotal.toLocaleString('en-IN')} (Paid ₹${savedBill.amount_paid.toLocaleString('en-IN')}, Credit ₹${savedBill.outstanding_amount.toLocaleString('en-IN')}).`}
+          message={`Saved Bill ${savedBill.bill_no} for ${savedBill.customer_name_snapshot} — Total ₹${savedBill.subtotal.toLocaleString('en-IN')} (Paid ₹${savedBill.amount_paid.toLocaleString('en-IN')}, Balance ₹${savedBill.outstanding_amount.toLocaleString('en-IN')}).`}
           action={
-            onNavigate ? (
-              <Button variant="secondary" icon={ReceiptText} onClick={() => onNavigate('bills')}>
-                View in Sales History
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Printer}
+                onClick={() => {
+                  setPrintBillId(savedBill.bill_id);
+                  setAutoPrintTrigger(false);
+                }}
+              >
+                Print Bill
               </Button>
-            ) : undefined
+              {onNavigate && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={ReceiptText}
+                  onClick={() => onNavigate('bills')}
+                >
+                  View in History
+                </Button>
+              )}
+            </div>
           }
         />
       )}
+
       {formError && <AlertBanner tone="error" message={formError} />}
-      {loadError && <AlertBanner tone="error" message={loadError} onRetry={() => void loadData()} />}
+      {loadError && (
+        <AlertBanner tone="error" message={loadError} onRetry={() => void loadData()} />
+      )}
 
       {loading ? (
         <LoadingCard label="Loading customers and available stock batches…" />
@@ -509,7 +651,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
         <EmptyState
           emoji="📦"
           title="No stock available to sell"
-          description="Receive stock from a supplier first so you can manually allocate available boxes to a customer bill."
+          description="Receive stock from a supplier first so you can allocate available boxes to a customer bill."
           action={
             onNavigate ? (
               <Button size="lg" icon={PackageOpen} onClick={() => onNavigate('receive')}>
@@ -519,152 +661,502 @@ export function NewSale({ onNavigate }: NewSaleProps) {
           }
         />
       ) : (
-        <form onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[1fr_380px]" noValidate>
-          <div className="space-y-4">
-            {/* Customer & Bill Details */}
-            <Card className="p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-display text-xl font-semibold text-leaf-950">
-                  Customer &amp; Bill Info
-                </h2>
-                <div className="inline-flex rounded-xl border-2 border-leaf-200 bg-white p-1" role="group" aria-label="Customer type">
-                  <button
-                    type="button"
-                    onClick={() => handleBuyerKindChange('registered')}
-                    aria-pressed={buyerKind === 'registered'}
-                    disabled={saving}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-bold transition-colors ${
-                      buyerKind === 'registered'
-                        ? 'bg-leaf-600 text-white shadow-sm'
-                        : 'text-leaf-700 hover:bg-leaf-50'
-                    }`}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSaveBill(false);
+          }}
+          className="space-y-3 pb-8"
+          noValidate
+        >
+          {/* SECTION 1: TWO COMPACT BOXES SIDE BY SIDE */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+            {/* LEFT BOX — Customer Details */}
+            <div className="rounded-xl border border-leaf-200 bg-white p-3 shadow-xs flex flex-col justify-between">
+              <div className="space-y-2.5">
+                {/* Top Row: Customer Type Toggle + Due Pill */}
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className="inline-flex rounded-xl border border-leaf-200 bg-cream-100 p-1 shrink-0"
+                    role="group"
+                    aria-label="Customer type"
                   >
-                    <UserCheck className="h-4 w-4" aria-hidden /> Registered Customer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBuyerKindChange('cash_customer')}
-                    aria-pressed={buyerKind === 'cash_customer'}
-                    disabled={saving}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-bold transition-colors ${
-                      buyerKind === 'cash_customer'
-                        ? 'bg-mango-500 text-white shadow-sm'
-                        : 'text-leaf-700 hover:bg-leaf-50'
-                    }`}
-                  >
-                    <Wallet className="h-4 w-4" aria-hidden /> Cash Customer
-                  </button>
-                </div>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => handleBuyerKindChange('registered')}
+                      aria-pressed={buyerKind === 'registered'}
+                      disabled={saving}
+                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
+                        buyerKind === 'registered'
+                          ? 'bg-leaf-600 text-white shadow-xs'
+                          : 'text-leaf-800 hover:bg-leaf-50'
+                      }`}
+                    >
+                      <UserCheck className="inline h-3.5 w-3.5 mr-1" aria-hidden /> Registered
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBuyerKindChange('cash_customer')}
+                      aria-pressed={buyerKind === 'cash_customer'}
+                      disabled={saving}
+                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
+                        buyerKind === 'cash_customer'
+                          ? 'bg-mango-600 text-white shadow-xs'
+                          : 'text-leaf-800 hover:bg-leaf-50'
+                      }`}
+                    >
+                      <Wallet className="inline h-3.5 w-3.5 mr-1" aria-hidden /> Cash (Walk-in)
+                    </button>
+                  </div>
 
-              <div className="mt-4 grid gap-5 md:grid-cols-2">
-                {buyerKind === 'registered' ? (
-                  <div>
-                    <SearchSelect
-                      label="Customer"
-                      placeholder="Select customer"
-                      options={customerOptions}
-                      value={customerId}
-                      onChange={(id) => {
-                        setCustomerId(id);
-                        setFormError(null);
-                      }}
-                      icon={false}
-                    />
-                    {customers.length === 0 && onNavigate && (
-                      <p className="mt-1.5 text-sm font-semibold text-mango-700">
-                        No registered customers yet.{' '}
-                        <button
-                          type="button"
-                          onClick={() => onNavigate('customers')}
-                          className="underline hover:text-mango-900"
-                        >
-                          Add customer
-                        </button>{' '}
-                        or use Cash Customer above.
-                      </p>
+                  {buyerKind === 'registered' && customerId && (
+                    <div
+                      className={`rounded-lg px-2.5 py-1 text-xs font-black tabular-nums border ${
+                        openingBalance > 0
+                          ? 'bg-mango-50 text-mango-900 border-mango-300'
+                          : 'bg-leaf-50 text-leaf-900 border-leaf-200'
+                      }`}
+                      title="Customer's current outstanding balance before this bill"
+                    >
+                      Due: ₹{openingBalance.toLocaleString('en-IN')}
+                    </div>
+                  )}
+                </div>
+
+                {/* Input Fields Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                  {/* Customer Name Selector / Walk-in Indicator */}
+                  <div className="sm:col-span-12">
+                    {buyerKind === 'registered' ? (
+                      <SearchSelect
+                        placeholder="Select customer *"
+                        options={customerOptions}
+                        value={customerId}
+                        onChange={handleCustomerChange}
+                        icon={false}
+                        compact
+                        className="!h-10 !py-2 !px-3 !text-sm font-semibold"
+                      />
+                    ) : (
+                      <div className="flex h-10 items-center justify-between rounded-lg border border-mango-300 bg-mango-50/70 px-3 text-sm font-bold text-mango-950">
+                        <span>Walk-in Cash Customer</span>
+                        <span className="text-2xs uppercase text-mango-800 font-black">
+                          Immediate Pay
+                        </span>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="flex items-center rounded-xl border-2 border-mango-200 bg-mango-50 px-4 py-3">
-                    <div>
-                      <p className="text-base font-extrabold text-mango-900">
-                        Walk-in Cash Customer
-                      </p>
-                      <p className="text-sm text-mango-800">
-                        Full payment required. Credit not allowed.
-                      </p>
+
+                  {/* Customer Mobile (autofilled from customer, editable for this sale) */}
+                  <div className="sm:col-span-6">
+                    <TextInput
+                      type="tel"
+                      placeholder={buyerKind === 'registered' ? 'Customer Mobile Number' : 'Mobile Number (optional)'}
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      disabled={saving}
+                      compact
+                      className="!h-10 !py-2 !px-3 !text-sm font-semibold"
+                    />
+                  </div>
+
+                  {/* Bill Date */}
+                  <div className="sm:col-span-6">
+                    <div className="relative">
+                      <Calendar
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-leaf-500"
+                        aria-hidden
+                      />
+                      <TextInput
+                        type="date"
+                        value={billDate}
+                        onChange={(e) => setBillDate(e.target.value)}
+                        disabled={saving}
+                        compact
+                        className="!h-10 !py-2 !pl-9 !pr-3 !text-sm font-semibold"
+                      />
                     </div>
                   </div>
-                )}
-
-                <FieldWrap label="Bill date">
-                  <div className="relative">
-                    <Calendar
-                      className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-leaf-500"
-                      aria-hidden
-                    />
-                    <TextInput
-                      type="date"
-                      className="pl-12"
-                      value={billDate}
-                      onChange={(e) => setBillDate(e.target.value)}
-                      disabled={saving}
-                    />
-                  </div>
-                </FieldWrap>
-
-                <div className="md:col-span-2">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center justify-between gap-2 text-sm font-bold text-leaf-900">
-                      <span>Bill Note</span>
-                      <span className="text-xs font-semibold text-leaf-500">Optional</span>
-                    </span>
-                    <TextInput
-                      placeholder="Optional remark"
-                      value={billNote}
-                      onChange={(e) => setBillNote(e.target.value)}
-                      disabled={saving}
-                    />
-                  </label>
                 </div>
               </div>
-            </Card>
+            </div>
 
-            {/* Sale Item Cards with Manual Multi-Batch Allocation */}
+            {/* RIGHT BOX — Bill Summary and Payment */}
+            <div className="rounded-xl border border-leaf-200 bg-white p-3 shadow-xs flex flex-col justify-between gap-2">
+              {/* Row 1: Bill Number & Note / Vehicle No */}
+              <div className="grid grid-cols-2 gap-2.5 items-center">
+                <div className="flex h-10 items-center px-3 rounded-lg border border-leaf-200 bg-cream-100/90 text-sm font-bold text-leaf-950">
+                  <span className="text-leaf-600 font-semibold mr-1.5 text-xs uppercase tracking-wider">Bill No</span>
+                  <span className="truncate">Auto on Save</span>
+                </div>
+                <div>
+                  <TextInput
+                    placeholder="Note / Vehicle No"
+                    value={billNote}
+                    onChange={(e) => setBillNote(e.target.value)}
+                    disabled={saving}
+                    compact
+                    className="!h-10 !py-2 !px-3 !text-sm font-semibold"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Metrics Summary */}
+              <div className="grid grid-cols-4 gap-2 py-1.5 px-2 rounded-lg bg-cream-50/80 border border-leaf-100 text-center">
+                <div>
+                  <span className="text-2xs font-extrabold uppercase tracking-wider text-leaf-600 block">Total</span>
+                  <span className="tabular-nums text-sm sm:text-base font-black text-leaf-950 block truncate">
+                    ₹{subtotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="border-l border-leaf-200">
+                  <span className="text-2xs font-extrabold uppercase tracking-wider text-leaf-600 block">Boxes</span>
+                  <span className="tabular-nums text-sm sm:text-base font-black text-leaf-950 block truncate">
+                    {totalBoxes}
+                  </span>
+                </div>
+                <div className="border-l border-leaf-200">
+                  <span className="text-2xs font-extrabold uppercase tracking-wider text-leaf-600 block">Paid</span>
+                  <span className="tabular-nums text-sm sm:text-base font-black text-leaf-700 block truncate">
+                    ₹{totalPaid.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="border-l border-leaf-200">
+                  <span className="text-2xs font-extrabold uppercase tracking-wider text-leaf-600 block">Closing</span>
+                  <span
+                    className={`tabular-nums text-sm sm:text-base font-black block truncate ${
+                      closingBalance > 0 ? 'text-mango-900' : 'text-leaf-900'
+                    }`}
+                  >
+                    ₹{closingBalance.toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 3: Payment Modes & Amount Inputs */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-xl border border-leaf-200 bg-cream-100 p-1 shrink-0">
+                  {(['credit', 'cash', 'upi', 'split'] as const).map((opt) => {
+                    const isDisabled = saving || (opt === 'credit' && buyerKind === 'cash_customer');
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => handleSelectPaymentChoice(opt)}
+                        disabled={isDisabled}
+                        className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
+                          paymentChoice === opt
+                            ? opt === 'credit'
+                              ? 'bg-mango-600 text-white shadow-xs'
+                              : 'bg-leaf-600 text-white shadow-xs'
+                            : 'text-leaf-800 hover:bg-leaf-50 disabled:opacity-40'
+                        }`}
+                      >
+                        {opt === 'credit' ? 'CREDIT' : opt.toUpperCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {(paymentChoice === 'cash' || paymentChoice === 'split') && (
+                    <div className="w-28">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="Cash"
+                        value={paidCash}
+                        onChange={(e) => {
+                          setPaidCash(e.target.value);
+                          if (paymentChoice !== 'split' && paymentChoice !== 'cash') {
+                            setPaymentChoice('split');
+                          }
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="Cash paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {(paymentChoice === 'upi' || paymentChoice === 'split') && (
+                    <div className="w-28">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="UPI"
+                        value={paidUpi}
+                        onChange={(e) => {
+                          setPaidUpi(e.target.value);
+                          if (paymentChoice !== 'split' && paymentChoice !== 'upi') {
+                            setPaymentChoice('split');
+                          }
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="UPI paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2: PRODUCT ENTRY TABLE (MAIN FOCUS) */}
+          <div className="hidden md:block rounded-xl border border-leaf-200 bg-white shadow-xs">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-leaf-200 bg-cream-100 text-2xs font-extrabold uppercase tracking-wider text-leaf-800">
+                  <th className="py-2 px-2.5 text-center w-10 rounded-tl-xl">#</th>
+                  <th className="py-2 px-2.5 min-w-[160px]">Fruit Category *</th>
+                  <th className="py-2 px-2.5 min-w-[180px]">Variety / Grade *</th>
+                  <th className="py-2 px-2.5 w-28 text-right">Selling Rate *</th>
+                  <th className="py-2 px-2.5 min-w-[260px]">
+                    Available Stock &amp; Batch Allocation *
+                  </th>
+                  <th className="py-2 px-2.5 w-24 text-center">Allocated</th>
+                  <th className="py-2 px-2.5 w-28 text-right">Line Total</th>
+                  <th className="py-2 px-2 text-center w-10 rounded-tr-xl"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-leaf-100">
+                {lines.map((line, idx) => {
+                  const varietyOpts = getVarietyOptionsForFruit(line.fruitId);
+                  const lineBatches = getBatchesForLine(line.fruitId, line.varietyId);
+                  const summary = lineSummaries[idx];
+                  const isBlank = isSaleLineBlank(line);
+
+                  return (
+                    <tr
+                      key={line.key}
+                      className={`transition-colors ${
+                        isBlank ? 'bg-cream-50/20' : 'hover:bg-leaf-50/30'
+                      }`}
+                    >
+                      {/* 1. Row Number */}
+                      <td className="py-1 px-2.5 text-center font-bold text-xs text-leaf-500">
+                        {idx + 1}
+                      </td>
+
+                      {/* 2. Fruit Category */}
+                      <td className="py-1 px-2.5">
+                        <SearchSelect
+                          compact
+                          placeholder="Select fruit"
+                          options={fruitOptions}
+                          value={line.fruitId}
+                          onChange={(id) => handleFruitChange(line.key, id)}
+                          disabled={saving}
+                          icon={false}
+                        />
+                      </td>
+
+                      {/* 3. Variety / Grade */}
+                      <td className="py-1 px-2.5">
+                        <SearchSelect
+                          compact
+                          placeholder={
+                            line.fruitId ? 'Select variety' : 'Select fruit first'
+                          }
+                          options={varietyOpts}
+                          value={line.varietyId}
+                          onChange={(id) => handleVarietyChange(line.key, line.fruitId, id)}
+                          disabled={!line.fruitId || saving}
+                          icon={false}
+                        />
+                      </td>
+
+                      {/* 4. Selling Rate / Box */}
+                      <td className="py-1 px-2.5">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          className="font-bold text-right"
+                          value={line.sellRate}
+                          onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
+                          disabled={saving}
+                        />
+                      </td>
+
+                      {/* 5. Available Stock & Batch Allocation (Single-Row Inline Integration) */}
+                      <td className="py-1 px-2.5">
+                        {!line.fruitId || !line.varietyId ? (
+                          <span className="text-2xs text-stone-400 italic">
+                            Select variety to view available batches
+                          </span>
+                        ) : lineBatches.length === 0 ? (
+                          <span className="text-2xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
+                            No batches available
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {lineBatches.map((batch) => {
+                              const rawVal = line.allocations[batch.batch_id] ?? '';
+                              const thisLineQty = parseNonNegativeInt(rawVal);
+                              const safeThisLine = Number.isNaN(thisLineQty) ? 0 : thisLineQty;
+                              const globalQty = totalAllocatedByBatch.get(batch.batch_id) ?? 0;
+                              const allocatedElsewhere = Math.max(0, globalQty - safeThisLine);
+                              const maxForThisLine = Math.max(
+                                0,
+                                batch.boxes_remaining - allocatedElsewhere
+                              );
+                              const exceeds =
+                                !Number.isNaN(thisLineQty) && thisLineQty > maxForThisLine;
+                              const invalidInt =
+                                rawVal.trim() !== '' && !WHOLE_NON_NEGATIVE_INT.test(rawVal.trim());
+
+                              return (
+                                <div
+                                  key={batch.batch_id}
+                                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs transition-colors ${
+                                    exceeds || invalidInt
+                                      ? 'border-red-300 bg-red-50 text-red-900'
+                                      : safeThisLine > 0
+                                      ? 'border-leaf-600 bg-leaf-50/80 font-bold text-leaf-950'
+                                      : 'border-leaf-200 bg-white text-leaf-800'
+                                  }`}
+                                >
+                                  <span className="font-extrabold">{batch.delivery_no}</span>
+                                  <span className="text-leaf-600 text-[10px]">
+                                    ({maxForThisLine} left)
+                                  </span>
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min="0"
+                                    max={maxForThisLine}
+                                    step="1"
+                                    placeholder="0"
+                                    value={rawVal}
+                                    onChange={(e) =>
+                                      handleBatchAllocationChange(
+                                        line.key,
+                                        batch.batch_id,
+                                        e.target.value
+                                      )
+                                    }
+                                    disabled={saving}
+                                    aria-label={`Boxes from ${batch.delivery_no}`}
+                                    className="tabular-nums w-12 rounded border border-leaf-300 bg-white px-1 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={saving || maxForThisLine === 0}
+                                    onClick={() =>
+                                      handleBatchAllocationChange(
+                                        line.key,
+                                        batch.batch_id,
+                                        String(maxForThisLine)
+                                      )
+                                    }
+                                    className="rounded bg-leaf-200 hover:bg-leaf-300 px-1 py-0.5 text-[9px] font-black uppercase text-leaf-900 disabled:opacity-40"
+                                    title="Allocate maximum available boxes from this batch"
+                                  >
+                                    Max
+                                  </button>
+                                  {(exceeds || invalidInt) && (
+                                    <span className="text-[10px] font-bold text-red-700">
+                                      {invalidInt ? 'Invalid' : `Max ${maxForThisLine}`}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 6. Allocated Boxes */}
+                      <td className="py-1 px-2.5 text-center">
+                        {summary.totalBoxes > 0 ? (
+                          <span className="inline-flex rounded-full bg-leaf-100 px-2 py-0.5 text-xs font-black text-leaf-800 tabular-nums">
+                            {summary.totalBoxes} bx
+                          </span>
+                        ) : (
+                          <span className="text-2xs font-semibold text-stone-400">0</span>
+                        )}
+                      </td>
+
+                      {/* 7. Line Total */}
+                      <td className="py-1 px-2.5 text-right tabular-nums text-xs font-extrabold text-leaf-950">
+                        {summary.lineTotal > 0 ? `₹${summary.lineTotal.toLocaleString('en-IN')}` : '—'}
+                      </td>
+
+                      {/* 8. Remove Action */}
+                      <td className="py-1 px-2 text-center">
+                        {lines.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => removeLine(line.key)}
+                            disabled={saving}
+                            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            title={`Remove item ${idx + 1}`}
+                            aria-label={`Remove item ${idx + 1}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="inline-block w-3.5" />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Layout (md:hidden) — Readable compact cards */}
+          <div className="space-y-2.5 md:hidden">
             {lines.map((line, idx) => {
               const varietyOpts = getVarietyOptionsForFruit(line.fruitId);
               const lineBatches = getBatchesForLine(line.fruitId, line.varietyId);
               const summary = lineSummaries[idx];
+              const isBlank = isSaleLineBlank(line);
 
               return (
-                <Card key={line.key} className="p-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <h2 className="text-lg font-extrabold text-leaf-900">Item {idx + 1}</h2>
-                      {summary.totalBoxes > 0 && (
-                        <Badge tone="green">
-                          {summary.totalBoxes} {summary.totalBoxes === 1 ? 'box' : 'boxes'} selected
-                        </Badge>
-                      )}
+                <Card
+                  key={line.key}
+                  className={`p-3.5 space-y-2.5 border transition-colors ${
+                    isBlank ? 'border-dashed border-leaf-200 bg-cream-50/50' : 'border-leaf-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-leaf-100 text-2xs font-bold text-leaf-800">
+                        {idx + 1}
+                      </span>
+                      <span className="text-xs font-extrabold text-leaf-950">
+                        {summary.fruitName
+                          ? `${summary.fruitName} (${summary.varietyName})`
+                          : 'New Sale Item'}
+                      </span>
                     </div>
                     {lines.length > 1 && (
-                      <Button
+                      <button
                         type="button"
-                        variant="ghost"
                         onClick={() => removeLine(line.key)}
                         disabled={saving}
+                        className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
                         aria-label={`Remove item ${idx + 1}`}
                       >
-                        <Trash2 className="h-5 w-5 text-red-600" aria-hidden /> Remove
-                      </Button>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     )}
                   </div>
 
-                  <div className="mt-4 grid gap-5 md:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <SearchSelect
+                      compact
                       label="Fruit"
-                      placeholder="Select in-stock fruit"
+                      placeholder="Select fruit"
                       options={fruitOptions}
                       value={line.fruitId}
                       onChange={(id) => handleFruitChange(line.key, id)}
@@ -672,47 +1164,44 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                     />
 
                     <SearchSelect
+                      compact
                       label="Variety / Grade"
-                      placeholder={
-                        line.fruitId ? 'Select variety' : 'Select fruit first'
-                      }
+                      placeholder={line.fruitId ? 'Select variety' : 'Select fruit first'}
                       options={varietyOpts}
                       value={line.varietyId}
                       onChange={(id) => handleVarietyChange(line.key, line.fruitId, id)}
                       icon={false}
                     />
-
-                    <FieldWrap label="Selling Rate / Box">
-                      <MoneyInput
-                        min="0"
-                        step="0.01"
-                        placeholder="0"
-                        value={line.sellRate}
-                        onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
-                        disabled={saving}
-                      />
-                    </FieldWrap>
                   </div>
 
-                  {/* Manual Batch Selection Table */}
-                  {line.fruitId && line.varietyId && (
-                    <div className="mt-5 space-y-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="inline-flex items-center gap-1.5 text-sm font-bold text-leaf-900">
-                          <Boxes className="h-4 w-4 text-leaf-600" aria-hidden />
-                          Batch Allocation
-                        </p>
-                        <span className="text-xs font-semibold text-leaf-600">
-                          Choose the stock batches for this sale.
-                        </span>
-                      </div>
+                  <div>
+                    <span className="mb-1 block text-xs font-bold text-leaf-900">
+                      Selling Rate / Box
+                    </span>
+                    <MoneyInput
+                      compact
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={line.sellRate}
+                      onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
+                      disabled={saving}
+                    />
+                  </div>
 
+                  {/* Batch Allocation */}
+                  {line.fruitId && line.varietyId && (
+                    <div className="space-y-1.5 pt-1 border-t border-leaf-100">
+                      <p className="inline-flex items-center gap-1 text-2xs font-bold text-leaf-900">
+                        <Boxes className="h-3.5 w-3.5 text-leaf-600" />
+                        Batch Allocation
+                      </p>
                       {lineBatches.length === 0 ? (
-                        <p className="rounded-xl bg-cream-100 px-4 py-3 text-sm font-semibold text-leaf-700">
-                          No available batches remaining for this variety.
+                        <p className="rounded bg-cream-100 px-2 py-1 text-2xs font-semibold text-leaf-700">
+                          No available batches.
                         </p>
                       ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           {lineBatches.map((batch) => {
                             const rawVal = line.allocations[batch.batch_id] ?? '';
                             const thisLineQty = parseNonNegativeInt(rawVal);
@@ -731,49 +1220,23 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                             return (
                               <div
                                 key={batch.batch_id}
-                                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 transition-colors ${
+                                className={`flex items-center justify-between gap-2 rounded-lg border p-2 text-2xs ${
                                   exceeds || invalidInt
                                     ? 'border-red-300 bg-red-50'
                                     : safeThisLine > 0
-                                      ? 'border-leaf-500 bg-leaf-50/60'
-                                      : 'border-leaf-100 bg-cream-50'
+                                    ? 'border-leaf-500 bg-leaf-50/60'
+                                    : 'border-leaf-100 bg-cream-50'
                                 }`}
                               >
                                 <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-extrabold text-leaf-950">
-                                      {batch.delivery_no}
-                                    </span>
-                                    <span className="text-xs font-semibold text-leaf-700">
-                                      {formatDisplayDate(batch.received_date)}
-                                    </span>
-                                    <span className="text-xs font-semibold text-leaf-600">
-                                      • {batch.supplier_name}
-                                    </span>
-                                  </div>
-                                  <p className="tabular-nums mt-0.5 text-xs font-semibold text-leaf-700">
-                                    Available:{' '}
-                                    <span className="font-extrabold text-leaf-950">
-                                      {maxForThisLine} boxes
-                                    </span>
-                                    {allocatedElsewhere > 0 && (
-                                      <span className="text-mango-700">
-                                        {' '}
-                                        ({allocatedElsewhere} used on another line)
-                                      </span>
-                                    )}{' '}
-                                    • Cost ₹{batch.purchase_rate.toLocaleString('en-IN')}/box
+                                  <p className="font-extrabold text-leaf-950">
+                                    {batch.delivery_no}
                                   </p>
-                                  {(exceeds || invalidInt) && (
-                                    <p className="mt-1 text-xs font-bold text-red-700">
-                                      {invalidInt
-                                        ? 'Enter a whole number of boxes.'
-                                        : `Cannot exceed ${maxForThisLine} available boxes.`}
-                                    </p>
-                                  )}
+                                  <p className="text-leaf-600 text-[10px]">
+                                    {batch.supplier_name} • {maxForThisLine} avail
+                                  </p>
                                 </div>
-
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
                                   <input
                                     type="number"
                                     inputMode="numeric"
@@ -790,8 +1253,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                       )
                                     }
                                     disabled={saving}
-                                    aria-label={`Boxes from ${batch.delivery_no}`}
-                                    className="tabular-nums w-24 rounded-xl border-2 border-leaf-200 bg-white px-3 py-2 text-right text-base font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none"
+                                    className="tabular-nums w-14 rounded border border-leaf-300 bg-white px-1.5 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none"
                                   />
                                   <button
                                     type="button"
@@ -803,7 +1265,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                         String(maxForThisLine)
                                       )
                                     }
-                                    className="rounded-lg border border-leaf-300 bg-white px-2.5 py-2 text-xs font-bold text-leaf-700 hover:bg-leaf-100 disabled:opacity-40"
+                                    className="rounded bg-leaf-100 hover:bg-leaf-200 px-1.5 py-0.5 text-2xs font-bold text-leaf-800 disabled:opacity-40"
                                   >
                                     Max
                                   </button>
@@ -816,12 +1278,10 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                     </div>
                   )}
 
-                  <div className="mt-4 flex items-center justify-between rounded-xl bg-cream-100 px-5 py-3.5">
-                    <span className="text-sm font-bold text-leaf-700">
-                      Item Total ({summary.totalBoxes}{' '}
-                      {summary.totalBoxes === 1 ? 'box' : 'boxes'})
-                    </span>
-                    <span className="tabular-nums text-2xl font-extrabold text-leaf-950">
+                  {/* Line Total */}
+                  <div className="flex items-center justify-between rounded-lg bg-cream-100 px-3 py-1.5 text-xs">
+                    <span className="font-bold text-leaf-700">Item Total:</span>
+                    <span className="tabular-nums font-display font-extrabold text-leaf-950">
                       ₹{summary.lineTotal.toLocaleString('en-IN')}
                     </span>
                   </div>
@@ -832,160 +1292,80 @@ export function NewSale({ onNavigate }: NewSaleProps) {
             <Button
               type="button"
               variant="secondary"
-              size="lg"
+              className="w-full"
               icon={Plus}
               onClick={addLine}
               disabled={saving}
             >
-              Add Another Item
+              Add Row
             </Button>
           </div>
 
-          {/* Sticky Bill Summary & Cash / UPI / Credit Split */}
-          <div className="xl:sticky xl:top-8 xl:self-start">
-            <Card className="overflow-hidden">
-              <div className="bg-leaf-700 px-6 py-5">
-                <p className="text-sm font-bold uppercase tracking-wide text-leaf-200">
-                  Bill Summary
-                </p>
-                <p className="tabular-nums mt-1 text-4xl font-extrabold text-white">
-                  ₹{subtotal.toLocaleString('en-IN')}
-                </p>
-                <p className="mt-1 text-sm text-leaf-100">
-                  {totalBoxes} {totalBoxes === 1 ? 'box' : 'boxes'} •{' '}
-                  {buyerKind === 'cash_customer'
-                    ? 'Cash Customer (Walk-in)'
-                    : selectedCustomer?.name ?? 'No customer selected'}
-                </p>
-              </div>
-
-              <div className="space-y-5 p-6">
-                {/* Quick Payment Presets */}
-                <div>
-                  <p className="mb-2 text-sm font-bold text-leaf-900">Quick Payment</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={applyPresetFullCash}
-                      disabled={saving || subtotal <= 0}
-                      className="rounded-xl border-2 border-leaf-200 bg-white px-2.5 py-2 text-xs font-bold text-leaf-800 transition-colors hover:border-leaf-500 hover:bg-leaf-50 disabled:opacity-40"
-                    >
-                      Full Cash
-                    </button>
-                    <button
-                      type="button"
-                      onClick={applyPresetFullUpi}
-                      disabled={saving || subtotal <= 0}
-                      className="rounded-xl border-2 border-leaf-200 bg-white px-2.5 py-2 text-xs font-bold text-leaf-800 transition-colors hover:border-leaf-500 hover:bg-leaf-50 disabled:opacity-40"
-                    >
-                      Full UPI
-                    </button>
-                    <button
-                      type="button"
-                      onClick={applyPresetFullCredit}
-                      disabled={saving || buyerKind === 'cash_customer' || subtotal <= 0}
-                      className="rounded-xl border-2 border-mango-200 bg-white px-2.5 py-2 text-xs font-bold text-mango-800 transition-colors hover:border-mango-500 hover:bg-mango-50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Full Credit
-                    </button>
-                  </div>
-                </div>
-
-                {/* Split Cash + UPI Inputs */}
-                <div className="grid grid-cols-2 gap-3">
-                  <FieldWrap label="Cash">
-                    <MoneyInput
-                      min="0"
-                      step="0.01"
-                      placeholder="0"
-                      value={paidCash}
-                      onChange={(e) => {
-                        setPaidCash(e.target.value);
-                        setFormError(null);
-                      }}
-                      disabled={saving}
-                    />
-                  </FieldWrap>
-                  <FieldWrap label="UPI">
-                    <MoneyInput
-                      min="0"
-                      step="0.01"
-                      placeholder="0"
-                      value={paidUpi}
-                      onChange={(e) => {
-                        setPaidUpi(e.target.value);
-                        setFormError(null);
-                      }}
-                      disabled={saving}
-                    />
-                  </FieldWrap>
-                </div>
-
-                {isOverpaid && (
-                  <p role="alert" className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-bold text-red-800">
-                    Total payment exceeds bill total by ₹
-                    {(totalPaid - subtotal).toLocaleString('en-IN')}.
-                  </p>
-                )}
-
-                {isCashCustomerWithCredit && (
-                  <p role="alert" className="rounded-xl bg-mango-50 px-3.5 py-2.5 text-sm font-bold text-mango-900">
-                    Cash Customer cannot take ₹{creditAmount.toLocaleString('en-IN')} on credit.
-                    Collect the full amount in Cash/UPI or choose a registered customer.
-                  </p>
-                )}
-
-                {/* Itemized Preview */}
-                {lineSummaries.some((s) => s.fruitName && s.totalBoxes > 0) && (
-                  <ul className="space-y-2 border-t border-leaf-100 pt-4 text-sm">
-                    {lineSummaries
-                      .filter((s) => s.fruitName && s.totalBoxes > 0)
-                      .map((s) => (
-                        <li key={s.key} className="flex items-center justify-between gap-3">
-                          <span className="min-w-0 truncate font-medium text-leaf-800">
-                            {s.fruitName} ({s.varietyName}) × {s.totalBoxes}
-                          </span>
-                          <span className="tabular-nums font-bold text-leaf-950">
-                            ₹{s.lineTotal.toLocaleString('en-IN')}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                )}
-
-                {/* Live Paid vs Credit Breakdown */}
-                <div className="space-y-2 border-t border-leaf-100 pt-4 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-leaf-700">Paid Now</span>
-                    <span className="tabular-nums font-bold text-leaf-950">
-                      ₹{totalPaid.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-leaf-700">Balance Due</span>
-                    <span
-                      className={`tabular-nums text-base font-extrabold ${
-                        creditAmount > 0 ? 'text-mango-700' : 'text-leaf-700'
-                      }`}
-                    >
-                      ₹{Math.max(0, creditAmount).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </div>
-
+          {/* SECTION 3: SAVE & PRINT ACTION AT THE BOTTOM */}
+          <div className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10 py-2.5 bg-white/95 backdrop-blur border-t border-leaf-200 shadow-sm flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {onNavigate && (
                 <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full"
-                  icon={saving ? Loader2 : CheckCircle2}
-                  disabled={saving || hasAnyStockIssue || isOverpaid || isCashCustomerWithCredit}
+                  type="button"
+                  size="md"
+                  variant="secondary"
+                  icon={ReceiptText}
+                  onClick={() => onNavigate('bills')}
                 >
-                  {saving ? 'Saving Bill…' : 'Save Bill'}
+                  Sales History
                 </Button>
-              </div>
-            </Card>
+              )}
+              {isOverpaid && (
+                <span className="text-xs font-bold text-red-600">
+                  Paid exceeds bill by ₹{(totalPaid - subtotal).toLocaleString('en-IN')}
+                </span>
+              )}
+              {isCashCustomerWithCredit && (
+                <span className="text-xs font-bold text-mango-700">
+                  Walk-in cannot take credit (collect full amount)
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="md"
+                variant="secondary"
+                icon={saving ? Loader2 : CheckCircle2}
+                disabled={saving || hasAnyStockIssue || isOverpaid || isCashCustomerWithCredit || subtotal <= 0}
+                onClick={() => void handleSaveBill(false)}
+              >
+                {saving ? 'Saving…' : 'Save Bill'}
+              </Button>
+
+              <Button
+                type="button"
+                size="md"
+                variant="primary"
+                icon={saving ? Loader2 : Printer}
+                disabled={saving || hasAnyStockIssue || isOverpaid || isCashCustomerWithCredit || subtotal <= 0}
+                onClick={() => void handleSaveBill(true)}
+              >
+                {saving ? 'Saving…' : 'Save & Print'}
+              </Button>
+            </div>
           </div>
         </form>
+      )}
+
+      {/* Printable Receipt Modal */}
+      {printBillId && (
+        <PrintableBillModal
+          billId={printBillId}
+          balanceSummary={printBalanceSummary}
+          autoPrint={autoPrintTrigger}
+          onClose={() => {
+            setPrintBillId(null);
+            setPrintBalanceSummary(null);
+            setAutoPrintTrigger(false);
+          }}
+        />
       )}
     </div>
   );
