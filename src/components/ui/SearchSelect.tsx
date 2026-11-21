@@ -15,6 +15,7 @@ interface SearchSelectProps {
   value: string | null;
   onChange: (id: string) => void;
   icon?: boolean;
+  disabled?: boolean;
 }
 
 export function SearchSelect({
@@ -24,6 +25,7 @@ export function SearchSelect({
   value,
   onChange,
   icon = true,
+  disabled = false,
 }: SearchSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -50,6 +52,7 @@ export function SearchSelect({
   }, [open]);
 
   const openList = () => {
+    if (disabled) return;
     setOpen(true);
     setQuery('');
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -60,8 +63,15 @@ export function SearchSelect({
       <span className="mb-1.5 block text-sm font-bold text-leaf-900">{label}</span>
       <button
         type="button"
-        onClick={() => (open ? setOpen(false) : openList())}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border-2 border-leaf-200 bg-white px-4 py-3 text-left transition-colors hover:border-leaf-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf-500"
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          if (open) setOpen(false);
+          else openList();
+        }}
+        className={`flex w-full items-center justify-between gap-3 rounded-xl border-2 border-leaf-200 bg-white px-4 py-3 text-left transition-colors hover:border-leaf-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf-500 ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-stone-50' : ''
+        }`}
         aria-haspopup="listbox"
         aria-expanded={open}
       >

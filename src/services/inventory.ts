@@ -2,9 +2,27 @@ import { supabase } from '@/lib/supabase';
 import type {
   AvailableStockBatch,
   DeliveryBalance,
+  DeliveryBatchDetail,
+  DeliveryDetailWithBatches,
+  EditStockDeliveryInput,
+  EditStockDeliveryResult,
   ReceiveStockDeliveryInput,
   StockBatchView,
 } from '@/types/database';
+
+interface RawBatchJoinRow {
+  id: string;
+  delivery_id: string;
+  line_no: number;
+  fruit_id: string;
+  variety_id: string;
+  boxes_received: number;
+  boxes_remaining: number;
+  purchase_rate: number;
+  purchase_amount: number | null;
+  fruits: { name: string } | { name: string }[] | null;
+  fruit_varieties: { name: string } | { name: string }[] | null;
+}
 
 interface PostgrestErrorLike {
   code?: string;
@@ -17,22 +35,35 @@ function formatInventoryError(error: PostgrestErrorLike | null, fallback: string
   const code = error.code ?? '';
   const msg = error.message ?? '';
 
+  // 1. PL/pgSQL business logic exceptions (RAISE EXCEPTION has code P0001) -> always show actual actionable message!
+  if (code === 'P0001' && msg) {
+    return new Error(msg);
+  }
+
+  // 2. Permission denied
+  if (code === '42501') {
+    return new Error('You do not have permission to perform this action. Please sign in again.');
+  }
+
+  // 3. Genuine PostgREST schema cache missing function/table
   if (
     code === 'PGRST202' ||
     code === 'PGRST205' ||
-    code === '42P01' ||
-    code === '42883' ||
-    code === '42703' ||
-    msg.includes('schema cache') ||
-    msg.includes('does not exist')
+    msg.toLowerCase().includes('schema cache')
   ) {
     return new Error(
-      'The stock database tables or RPCs are not ready yet. Apply the prepared Supabase migrations first, then tap Retry.'
+      `Database function or table is not ready in API schema cache (${msg || code}). Please reload schema cache or apply migrations.`
     );
   }
 
-  if (code === '42501') {
-    return new Error('You do not have permission to perform this action. Please sign in again.');
+  // 4. Missing table or column errors
+  if (code === '42P01' || code === '42703') {
+    return new Error(`Database schema error: ${msg || fallback}`);
+  }
+
+  // 5. Undefined function error (display actual message, e.g. function signature mismatch)
+  if (code === '42883') {
+    return new Error(`Database function error: ${msg || fallback}`);
   }
 
   return new Error(msg || fallback);
@@ -201,4 +232,137 @@ export async function listStockBatches(): Promise<StockBatchView[]> {
       delivery_outstanding_amount: Number(del?.outstanding_amount ?? batch.purchase_amount),
     };
   });
+}
+
+/**
+ * Loads delivery details, all child batches, active sold counts, allocation history flags,
+ * and amount paid against the delivery.
+ */
+export async function getDeliveryDetail(deliveryId: string): Promise<DeliveryDetailWithBatches> {
+  const [deliveryRes, batchesRes] = await Promise.all([
+    supabase
+      .from('delivery_balances')
+      .select('*')
+      .eq('delivery_id', deliveryId)
+      .single(),
+    supabase
+      .from('stock_batches')
+      .select('id, delivery_id, line_no, fruit_id, variety_id, boxes_received, boxes_remaining, purchase_rate, purchase_amount, fruits(name), fruit_varieties(name)')
+      .eq('delivery_id', deliveryId)
+      .order('line_no', { ascending: true }),
+  ]);
+
+  if (deliveryRes.error) {
+    throw formatInventoryError(deliveryRes.error, 'Could not load delivery balance details.');
+  }
+  if (batchesRes.error) {
+    throw formatInventoryError(batchesRes.error, 'Could not load delivery batches.');
+  }
+
+  const rawBatches = (batchesRes.data || []) as unknown as RawBatchJoinRow[];
+  const batchIds = rawBatches.map((b) => b.id);
+
+  let allocatedBatchIds = new Set<string>();
+  if (batchIds.length > 0) {
+    const { data: allocations, error: allocErr } = await supabase
+      .from('bill_item_batch_allocations')
+      .select('batch_id')
+      .in('batch_id', batchIds);
+
+    if (allocErr) {
+      throw formatInventoryError(allocErr, 'Could not check batch allocation history.');
+    }
+    if (allocations) {
+      allocatedBatchIds = new Set(allocations.map((a: { batch_id: string }) => a.batch_id));
+    }
+  }
+
+  const delivery = deliveryRes.data as DeliveryBalance;
+  const batches: DeliveryBatchDetail[] = rawBatches.map((b) => {
+    const boxesReceived = Number(b.boxes_received);
+    const boxesRemaining = Number(b.boxes_remaining);
+    const fruitName = Array.isArray(b.fruits)
+      ? b.fruits[0]?.name ?? 'Unknown Fruit'
+      : b.fruits?.name ?? 'Unknown Fruit';
+    const varietyName = Array.isArray(b.fruit_varieties)
+      ? b.fruit_varieties[0]?.name ?? 'Unknown Variety'
+      : b.fruit_varieties?.name ?? 'Unknown Variety';
+
+    return {
+      id: b.id,
+      delivery_id: b.delivery_id,
+      line_no: Number(b.line_no),
+      fruit_id: b.fruit_id,
+      fruit_name: fruitName,
+      variety_id: b.variety_id,
+      variety_name: varietyName,
+      boxes_received: boxesReceived,
+      boxes_remaining: boxesRemaining,
+      boxes_sold: Math.max(0, boxesReceived - boxesRemaining),
+      purchase_rate: Number(b.purchase_rate),
+      purchase_amount: Number(b.purchase_amount ?? (boxesReceived * Number(b.purchase_rate))),
+      has_allocations: allocatedBatchIds.has(b.id),
+    };
+  });
+
+  return {
+    delivery,
+    batches,
+    amount_paid: Number(delivery.amount_paid ?? 0),
+  };
+}
+
+/**
+ * Atomically updates an existing stock delivery, adjusts/adds/removes batch lines,
+ * validates historical allocation protection and supplier payment constraints,
+ * and records an audit log row via edit_stock_delivery RPC.
+ */
+export async function editStockDelivery(
+  input: EditStockDeliveryInput
+): Promise<EditStockDeliveryResult> {
+  if (!input.delivery_id) {
+    throw new Error('Delivery ID is required.');
+  }
+  if (!input.correction_reason || !input.correction_reason.trim()) {
+    throw new Error('Please enter a reason for this delivery correction.');
+  }
+  if (!input.items || input.items.length === 0) {
+    throw new Error('Add at least one variety line to this delivery.');
+  }
+
+  const payloadItems = input.items.map((item, idx) => {
+    if (!item.fruit_id) {
+      throw new Error(`Select a fruit category on line ${idx + 1}.`);
+    }
+    if (!item.variety_id) {
+      throw new Error(`Select a variety on line ${idx + 1}.`);
+    }
+    if (!Number.isInteger(item.boxes) || item.boxes <= 0) {
+      throw new Error(`Boxes on line ${idx + 1} must be a whole number greater than zero.`);
+    }
+    if (!Number.isFinite(item.purchase_rate) || item.purchase_rate <= 0) {
+      throw new Error(`Purchase rate on line ${idx + 1} must be greater than zero.`);
+    }
+
+    return {
+      batch_id: item.batch_id || null,
+      fruit_id: item.fruit_id,
+      variety_id: item.variety_id,
+      boxes: item.boxes,
+      purchase_rate: Math.round(item.purchase_rate * 100) / 100,
+    };
+  });
+
+  const { data, error } = await supabase.rpc('edit_stock_delivery', {
+    p_delivery_id: input.delivery_id,
+    p_items: payloadItems,
+    p_note: input.note?.trim() || null,
+    p_correction_reason: input.correction_reason.trim(),
+  });
+
+  if (error) {
+    throw formatInventoryError(error, 'Could not update stock delivery. Please check errors and try again.');
+  }
+
+  return data as EditStockDeliveryResult;
 }

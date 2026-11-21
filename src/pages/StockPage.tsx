@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Calendar, PackageOpen, RotateCw, Search, Truck } from 'lucide-react';
+import { Calendar, PackageOpen, Pencil, RotateCw, Search, Truck } from 'lucide-react';
 import {
   AlertBanner,
   Badge,
@@ -11,6 +11,7 @@ import {
   SelectInput,
   TextInput,
 } from '@/components/ui';
+import { EditDeliveryModal } from '@/components/inventory/EditDeliveryModal';
 import { formatDisplayDate, listStockBatches } from '@/services/inventory';
 import type { PaymentStatus, StockBatchView } from '@/types/database';
 import type { Page } from './pageTypes';
@@ -43,6 +44,7 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [availabilityFilter, setAvailabilityFilter] =
     useState<StockAvailabilityFilter>('in_stock');
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatusFilter>('all');
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
 
   const loadBatches = useCallback(async () => {
     setLoading(true);
@@ -329,10 +331,20 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                         </div>
                       </div>
 
-                      <div className="flex flex-col items-start sm:items-end gap-1.5">
-                        <Badge tone={paymentTone(batch.delivery_payment_status)}>
-                          {paymentLabel(batch.delivery_payment_status)}
-                        </Badge>
+                      <div className="flex flex-col items-start sm:items-end gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={paymentTone(batch.delivery_payment_status)}>
+                            {paymentLabel(batch.delivery_payment_status)}
+                          </Badge>
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            icon={Pencil}
+                            onClick={() => setEditingDeliveryId(batch.delivery_id)}
+                          >
+                            Edit Delivery
+                          </Button>
+                        </div>
                         <span className="tabular-nums text-xs sm:text-sm font-semibold text-leaf-600">
                           Delivery paid ₹{batch.delivery_amount_paid.toLocaleString('en-IN')} / ₹
                           {batch.delivery_purchase_amount.toLocaleString('en-IN')}
@@ -391,6 +403,13 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
           </div>
         </>
       )}
+
+      <EditDeliveryModal
+        deliveryId={editingDeliveryId}
+        isOpen={Boolean(editingDeliveryId)}
+        onClose={() => setEditingDeliveryId(null)}
+        onSuccess={() => void loadBatches()}
+      />
     </div>
   );
 }

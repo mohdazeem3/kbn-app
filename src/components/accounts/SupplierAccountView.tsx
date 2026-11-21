@@ -12,6 +12,7 @@ import {
   Scale,
   Smartphone,
   Truck,
+  Pencil,
 } from 'lucide-react';
 import {
   AlertBanner,
@@ -23,6 +24,7 @@ import {
   LoadingCard,
   TextInput,
 } from '@/components/ui';
+import { EditDeliveryModal } from '@/components/inventory/EditDeliveryModal';
 import { OpeningBalanceModal } from './OpeningBalanceModal';
 import { ReallocateAllocationModal } from './ReallocateAllocationModal';
 import { RecordSupplierPaymentModal } from './RecordSupplierPaymentModal';
@@ -102,6 +104,7 @@ export function SupplierAccountView({
 
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [openingModalOpen, setOpeningModalOpen] = useState(false);
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
   const [reallocatingAllocation, setReallocatingAllocation] =
     useState<SupplierPaymentAllocationItem | null>(null);
 
@@ -686,6 +689,16 @@ export function SupplierAccountView({
                         </div>
                       </div>
 
+                      {del.status === 'active' && !isCancellingThis && (
+                        <Button
+                          variant="secondary"
+                          icon={Pencil}
+                          onClick={() => setEditingDeliveryId(del.delivery_id)}
+                        >
+                          Edit Delivery
+                        </Button>
+                      )}
+
                       {canCancel && !isCancellingThis && (
                         <Button
                           variant="secondary"
@@ -1228,6 +1241,16 @@ export function SupplierAccountView({
         partyName={balance.name}
         onClose={() => setOpeningModalOpen(false)}
         onSubmit={handleSetOpeningBalance}
+      />
+
+      <EditDeliveryModal
+        deliveryId={editingDeliveryId}
+        isOpen={Boolean(editingDeliveryId)}
+        onClose={() => setEditingDeliveryId(null)}
+        onSuccess={() => {
+          void loadAccount();
+          onDataChanged?.();
+        }}
       />
     </div>
   );

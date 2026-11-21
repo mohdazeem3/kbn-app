@@ -537,7 +537,7 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
               {selectedSupplier && supplierFruitOptions.length === 0 && (
                 <div className="mt-4">
                   <AlertBanner
-                    tone="warning"
+                    tone="info"
                     message={`Supplier "${selectedSupplier.name}" has no active fruits linked. Edit this supplier to add fruit categories before receiving stock.`}
                     action={
                       onNavigate ? (

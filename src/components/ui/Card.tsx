@@ -51,9 +51,11 @@ export function EmptyState({
 
 export function Badge({
   tone = 'green',
+  className = '',
   children,
 }: {
   tone?: 'green' | 'orange' | 'red' | 'neutral';
+  className?: string;
   children: ReactNode;
 }) {
   const tones: Record<string, string> = {
@@ -63,7 +65,7 @@ export function Badge({
     neutral: 'bg-stone-100 text-stone-700',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${tones[tone]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${tones[tone]} ${className}`}>
       {children}
     </span>
   );

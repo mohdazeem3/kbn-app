@@ -6,11 +6,12 @@ interface ModalProps {
   open: boolean;
   title: string;
   subtitle?: string;
+  maxWidth?: string;
   onClose: () => void;
   children: ReactNode;
 }
 
-export function Modal({ open, title, subtitle, onClose, children }: ModalProps) {
+export function Modal({ open, title, subtitle, maxWidth = 'max-w-lg', onClose, children }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -30,7 +31,7 @@ export function Modal({ open, title, subtitle, onClose, children }: ModalProps) 
       aria-labelledby="modal-title"
     >
       <div className="absolute inset-0 bg-leaf-950/40" onClick={onClose} aria-hidden />
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-lifted">
+      <div className={`relative z-10 flex max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-lifted`}>
         <div className="flex items-start justify-between gap-4 border-b border-leaf-100 px-6 py-5">
           <div>
             <h2 id="modal-title" className="font-display text-2xl font-semibold text-leaf-950">

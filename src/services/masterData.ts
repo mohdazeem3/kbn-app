@@ -272,7 +272,7 @@ export async function listSuppliers(): Promise<SupplierWithFruit[]> {
     .order('name', { ascending: true });
 
   if (error) throw formatMasterError(error, 'supplier');
-  return ((data ?? []) as SupplierJoinRow[]).map(mapSupplierRow);
+  return ((data ?? []) as unknown as SupplierJoinRow[]).map(mapSupplierRow);
 }
 
 export async function createSupplier(input: SupplierInput): Promise<SupplierWithFruit> {
@@ -309,7 +309,7 @@ export async function createSupplier(input: SupplierInput): Promise<SupplierWith
     .single();
 
   if (fetchError) throw formatMasterError(fetchError, 'supplier');
-  return mapSupplierRow(row as SupplierJoinRow);
+  return mapSupplierRow(row as unknown as SupplierJoinRow);
 }
 
 export async function updateSupplier(
@@ -350,7 +350,7 @@ export async function updateSupplier(
     .single();
 
   if (fetchError) throw formatMasterError(fetchError, 'supplier');
-  return mapSupplierRow(row as SupplierJoinRow);
+  return mapSupplierRow(row as unknown as SupplierJoinRow);
 }
 
 export async function setSupplierActive(
@@ -371,7 +371,7 @@ export async function setSupplierActive(
     .single();
 
   if (error) throw formatMasterError(error, 'supplier');
-  return mapSupplierRow(data as SupplierJoinRow);
+  return mapSupplierRow(data as unknown as SupplierJoinRow);
 }
 
 // ----------------------------------------------------------------------------

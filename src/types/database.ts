@@ -91,6 +91,67 @@ export interface ReceiveStockDeliveryInput {
   idempotency_key: string;
 }
 
+export interface EditStockBatchItemInput {
+  batch_id?: string | null;
+  fruit_id: string;
+  variety_id: string;
+  boxes: number;
+  purchase_rate: number;
+}
+
+export interface EditStockDeliveryInput {
+  delivery_id: string;
+  items: EditStockBatchItemInput[];
+  note?: string | null;
+  correction_reason: string;
+}
+
+export interface EditStockDeliveryResult {
+  delivery_id: string;
+  delivery_no: string;
+  total_boxes: number;
+  total_amount: number;
+  amount_paid: number;
+  outstanding_amount: number;
+}
+
+export interface DeliveryBatchDetail {
+  id: string;
+  delivery_id: string;
+  line_no: number;
+  fruit_id: string;
+  fruit_name: string;
+  variety_id: string;
+  variety_name: string;
+  boxes_received: number;
+  boxes_remaining: number;
+  boxes_sold: number;
+  purchase_rate: number;
+  purchase_amount: number;
+  has_allocations: boolean;
+}
+
+export interface DeliveryDetailWithBatches {
+  delivery: DeliveryBalance;
+  batches: DeliveryBatchDetail[];
+  amount_paid: number;
+}
+
+export interface StockDeliveryCorrection {
+  id: string;
+  delivery_id: string;
+  delivery_no: string;
+  corrected_by: string;
+  correction_reason: string;
+  previous_items: unknown[];
+  new_items: unknown[];
+  previous_total_boxes: number;
+  new_total_boxes: number;
+  previous_total_amount: number;
+  new_total_amount: number;
+  created_at: string;
+}
+
 export interface AvailableStockBatch {
   batch_id: string;
   delivery_id: string;
