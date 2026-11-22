@@ -4,6 +4,7 @@ import {
   Calendar,
   CheckCircle2,
   Loader2,
+  MessageCircle,
   PackageOpen,
   Plus,
   Printer,
@@ -29,12 +30,18 @@ import {
   getLocalIsoDate,
   listStockBatches,
 } from '@/services/inventory';
-import { createBill } from '@/services/sales';
+import { createBill, getBillDetail } from '@/services/sales';
 import { listCustomerBalances } from '@/services/accounts';
 import {
   PrintableBillModal,
   type CustomerBalanceSummary,
 } from '@/components/sales/PrintableBillModal';
+import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
+import {
+  generateWhatsAppInvoiceMessage,
+  normalizeIndianMobile,
+  openWhatsAppChat,
+} from '@/services/whatsapp';
 import type {
   BillBalance,
   Customer,
@@ -42,6 +49,15 @@ import type {
   StockBatchView,
 } from '@/types/database';
 import type { Page } from './pageTypes';
+
+interface LastSavedSaleState {
+  billId: string;
+  billNo: string;
+  customerName: string;
+  phone: string;
+  closingBalance: number;
+  paymentChoice: PaymentChoice;
+}
 
 interface SaleLine {
   key: number;
@@ -131,10 +147,14 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [savedBill, setSavedBill] = useState<BillBalance | null>(null);
+  const [lastSavedSale, setLastSavedSale] = useState<LastSavedSaleState | null>(null);
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
 
   // Printing State
   const [printBillId, setPrintBillId] = useState<string | null>(null);
   const [printBalanceSummary, setPrintBalanceSummary] = useState<CustomerBalanceSummary | null>(null);
+  const [printCustomerPhone, setPrintCustomerPhone] = useState<string>('');
+  const [printPaymentMode, setPrintPaymentMode] = useState<string | null>(null);
   const [autoPrintTrigger, setAutoPrintTrigger] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -172,13 +192,24 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     [customers]
   );
 
+  const selectedCustomer = useMemo(
+    () => (customerId ? customers.find((c) => c.id === customerId) ?? null : null),
+    [customers, customerId]
+  );
+
   // Live customer balance from ledger
   const customerBalanceRecord = useMemo(
     () => (customerId ? customerBalances.find((b) => b.customer_id === customerId) ?? null : null),
     [customerBalances, customerId]
   );
 
-  // 1. Opening Balance before this new bill
+  // Actual Opening Balance from customer record/ledger
+  const customerOpeningBalance = useMemo(() => {
+    if (buyerKind === 'cash_customer' || !customerId || !customerBalanceRecord) return 0;
+    return customerBalanceRecord.opening_balance;
+  }, [buyerKind, customerId, customerBalanceRecord]);
+
+  // 1. Opening Balance before this new bill (ledger outstanding before bill, for closing balance calculation)
   const openingBalance = useMemo(() => {
     if (buyerKind === 'cash_customer' || !customerId || !customerBalanceRecord) return 0;
     return customerBalanceRecord.outstanding_balance;
@@ -578,10 +609,22 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       closingBalance,
     };
 
+    const targetCustomerPhone = customerPhone.trim() || (selectedCustomer?.phone ?? '');
+    const currentPaymentChoice = paymentChoice;
+
     setSaving(true);
     try {
       const created = await createBill(payload);
       setSavedBill(created);
+      setLastSavedSale({
+        billId: created.bill_id,
+        billNo: created.bill_no,
+        customerName: created.customer_name_snapshot,
+        phone: targetCustomerPhone,
+        closingBalance: balanceSnapshot.closingBalance,
+        paymentChoice: currentPaymentChoice,
+      });
+
       setLines([createEmptySaleLine()]);
       setPaidCash('');
       setPaidUpi('');
@@ -592,6 +635,8 @@ export function NewSale({ onNavigate }: NewSaleProps) {
       // If "Save & Print" was triggered, open the print modal immediately
       if (shouldPrint) {
         setPrintBalanceSummary(balanceSnapshot);
+        setPrintCustomerPhone(targetCustomerPhone);
+        setPrintPaymentMode(currentPaymentChoice.toUpperCase());
         setPrintBillId(created.bill_id);
         setAutoPrintTrigger(true);
       }
@@ -605,6 +650,26 @@ export function NewSale({ onNavigate }: NewSaleProps) {
     }
   };
 
+  const handleShareOnWhatsApp = async () => {
+    if (!lastSavedSale) return;
+    const normalized = normalizeIndianMobile(lastSavedSale.phone);
+    if (normalized) {
+      try {
+        const detail = await getBillDetail(lastSavedSale.billId);
+        const text = generateWhatsAppInvoiceMessage({
+          bill: detail.bill,
+          items: detail.items,
+          closingBalance: lastSavedSale.closingBalance,
+          paymentMode: lastSavedSale.paymentChoice.toUpperCase(),
+        });
+        openWhatsAppChat(normalized, text);
+      } catch (err) {
+        console.error('Error opening WhatsApp chat:', err);
+      }
+    }
+    setWhatsAppModalOpen(true);
+  };
+
   return (
     <div className="space-y-3">
       {/* Success Banner */}
@@ -613,13 +678,24 @@ export function NewSale({ onNavigate }: NewSaleProps) {
           tone="success"
           message={`Saved Bill ${savedBill.bill_no} for ${savedBill.customer_name_snapshot} — Total ₹${savedBill.subtotal.toLocaleString('en-IN')} (Paid ₹${savedBill.amount_paid.toLocaleString('en-IN')}, Balance ₹${savedBill.outstanding_amount.toLocaleString('en-IN')}).`}
           action={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                className="!bg-[#25D366] hover:!bg-[#1EBE5D] text-white border-0 shadow-sm"
+                icon={MessageCircle}
+                onClick={handleShareOnWhatsApp}
+              >
+                Share on WhatsApp
+              </Button>
               <Button
                 size="sm"
                 variant="secondary"
                 icon={Printer}
                 onClick={() => {
                   setPrintBillId(savedBill.bill_id);
+                  setPrintCustomerPhone(lastSavedSale?.phone ?? '');
+                  setPrintPaymentMode(lastSavedSale?.paymentChoice.toUpperCase() ?? null);
                   setAutoPrintTrigger(false);
                 }}
               >
@@ -632,7 +708,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                   icon={ReceiptText}
                   onClick={() => onNavigate('bills')}
                 >
-                  View in History
+                  Sales History
                 </Button>
               )}
             </div>
@@ -666,6 +742,14 @@ export function NewSale({ onNavigate }: NewSaleProps) {
             e.preventDefault();
             void handleSaveBill(false);
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLElement;
+              if (target.tagName === 'INPUT' && target.getAttribute('type') !== 'submit') {
+                e.preventDefault();
+              }
+            }
+          }}
           className="space-y-3 pb-8"
           noValidate
         >
@@ -686,7 +770,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                       onClick={() => handleBuyerKindChange('registered')}
                       aria-pressed={buyerKind === 'registered'}
                       disabled={saving}
-                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
+                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1 ${
                         buyerKind === 'registered'
                           ? 'bg-leaf-600 text-white shadow-xs'
                           : 'text-leaf-800 hover:bg-leaf-50'
@@ -699,7 +783,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                       onClick={() => handleBuyerKindChange('cash_customer')}
                       aria-pressed={buyerKind === 'cash_customer'}
                       disabled={saving}
-                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
+                      className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1 ${
                         buyerKind === 'cash_customer'
                           ? 'bg-mango-600 text-white shadow-xs'
                           : 'text-leaf-800 hover:bg-leaf-50'
@@ -712,13 +796,13 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                   {buyerKind === 'registered' && customerId && (
                     <div
                       className={`rounded-lg px-2.5 py-1 text-xs font-black tabular-nums border ${
-                        openingBalance > 0
+                        customerOpeningBalance > 0
                           ? 'bg-mango-50 text-mango-900 border-mango-300'
                           : 'bg-leaf-50 text-leaf-900 border-leaf-200'
                       }`}
-                      title="Customer's current outstanding balance before this bill"
+                      title="Customer's Opening Balance from ledger"
                     >
-                      Due: ₹{openingBalance.toLocaleString('en-IN')}
+                      Opening Balance: ₹{customerOpeningBalance.toLocaleString('en-IN')}
                     </div>
                   )}
                 </div>
@@ -783,22 +867,10 @@ export function NewSale({ onNavigate }: NewSaleProps) {
 
             {/* RIGHT BOX — Bill Summary and Payment */}
             <div className="rounded-xl border border-leaf-200 bg-white p-3 shadow-xs flex flex-col justify-between gap-2">
-              {/* Row 1: Bill Number & Note / Vehicle No */}
-              <div className="grid grid-cols-2 gap-2.5 items-center">
-                <div className="flex h-10 items-center px-3 rounded-lg border border-leaf-200 bg-cream-100/90 text-sm font-bold text-leaf-950">
-                  <span className="text-leaf-600 font-semibold mr-1.5 text-xs uppercase tracking-wider">Bill No</span>
-                  <span className="truncate">Auto on Save</span>
-                </div>
-                <div>
-                  <TextInput
-                    placeholder="Note / Vehicle No"
-                    value={billNote}
-                    onChange={(e) => setBillNote(e.target.value)}
-                    disabled={saving}
-                    compact
-                    className="!h-10 !py-2 !px-3 !text-sm font-semibold"
-                  />
-                </div>
+              {/* Row 1: Bill Number */}
+              <div className="flex h-10 items-center px-3 rounded-lg border border-leaf-200 bg-cream-100/90 text-sm font-bold text-leaf-950">
+                <span className="text-leaf-600 font-semibold mr-1.5 text-xs uppercase tracking-wider">Bill No</span>
+                <span className="truncate">Auto on Save</span>
               </div>
 
               {/* Row 2: Metrics Summary */}
@@ -833,10 +905,102 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                 </div>
               </div>
 
-              {/* Row 3: Payment Modes & Amount Inputs */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* Row 3: Payment Amount Input & Mode Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                {/* 1. Payment Amount Input at the beginning */}
+                <div className="flex items-center gap-2">
+                  {paymentChoice === 'cash' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="Cash Amount"
+                        value={paidCash}
+                        onChange={(e) => {
+                          setPaidCash(e.target.value);
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="Cash amount paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'credit' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        placeholder="0.00"
+                        value=""
+                        disabled
+                        aria-label="Credit amount (pay later)"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg bg-cream-100/60 opacity-60 cursor-not-allowed"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'upi' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="UPI Amount"
+                        value={paidUpi}
+                        onChange={(e) => {
+                          setPaidUpi(e.target.value);
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="UPI amount paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'split' && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 sm:w-28">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="Cash"
+                          value={paidCash}
+                          onChange={(e) => {
+                            setPaidCash(e.target.value);
+                            setFormError(null);
+                          }}
+                          disabled={saving}
+                          aria-label="Cash split amount"
+                          className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                        />
+                      </div>
+                      <div className="w-24 sm:w-28">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="UPI"
+                          value={paidUpi}
+                          onChange={(e) => {
+                            setPaidUpi(e.target.value);
+                            setFormError(null);
+                          }}
+                          disabled={saving}
+                          aria-label="UPI split amount"
+                          className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Mode Buttons: 1. CASH, 2. CREDIT, 3. UPI, 4. SPLIT */}
                 <div className="inline-flex rounded-xl border border-leaf-200 bg-cream-100 p-1 shrink-0">
-                  {(['credit', 'cash', 'upi', 'split'] as const).map((opt) => {
+                  {(['cash', 'credit', 'upi', 'split'] as const).map((opt) => {
                     const isDisabled = saving || (opt === 'credit' && buyerKind === 'cash_customer');
                     return (
                       <button
@@ -844,7 +1008,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                         type="button"
                         onClick={() => handleSelectPaymentChoice(opt)}
                         disabled={isDisabled}
-                        className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
+                        className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1 ${
                           paymentChoice === opt
                             ? opt === 'credit'
                               ? 'bg-mango-600 text-white shadow-xs'
@@ -852,56 +1016,10 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                             : 'text-leaf-800 hover:bg-leaf-50 disabled:opacity-40'
                         }`}
                       >
-                        {opt === 'credit' ? 'CREDIT' : opt.toUpperCase()}
+                        {opt.toUpperCase()}
                       </button>
                     );
                   })}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {(paymentChoice === 'cash' || paymentChoice === 'split') && (
-                    <div className="w-28">
-                      <MoneyInput
-                        compact
-                        min="0"
-                        step="0.01"
-                        placeholder="Cash"
-                        value={paidCash}
-                        onChange={(e) => {
-                          setPaidCash(e.target.value);
-                          if (paymentChoice !== 'split' && paymentChoice !== 'cash') {
-                            setPaymentChoice('split');
-                          }
-                          setFormError(null);
-                        }}
-                        disabled={saving}
-                        aria-label="Cash paid"
-                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
-                      />
-                    </div>
-                  )}
-
-                  {(paymentChoice === 'upi' || paymentChoice === 'split') && (
-                    <div className="w-28">
-                      <MoneyInput
-                        compact
-                        min="0"
-                        step="0.01"
-                        placeholder="UPI"
-                        value={paidUpi}
-                        onChange={(e) => {
-                          setPaidUpi(e.target.value);
-                          if (paymentChoice !== 'split' && paymentChoice !== 'upi') {
-                            setPaymentChoice('split');
-                          }
-                          setFormError(null);
-                        }}
-                        disabled={saving}
-                        aria-label="UPI paid"
-                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1044,7 +1162,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                     }
                                     disabled={saving}
                                     aria-label={`Boxes from ${batch.delivery_no}`}
-                                    className="tabular-nums w-12 rounded border border-leaf-300 bg-white px-1 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none"
+                                    className="tabular-nums w-12 rounded border border-leaf-300 bg-white px-1 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
                                   />
                                   <button
                                     type="button"
@@ -1056,7 +1174,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                         String(maxForThisLine)
                                       )
                                     }
-                                    className="rounded bg-leaf-200 hover:bg-leaf-300 px-1 py-0.5 text-[9px] font-black uppercase text-leaf-900 disabled:opacity-40"
+                                    className="rounded bg-leaf-200 hover:bg-leaf-300 px-1 py-0.5 text-[9px] font-black uppercase text-leaf-900 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1"
                                     title="Allocate maximum available boxes from this batch"
                                   >
                                     Max
@@ -1096,7 +1214,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                             type="button"
                             onClick={() => removeLine(line.key)}
                             disabled={saving}
-                            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                             title={`Remove item ${idx + 1}`}
                             aria-label={`Remove item ${idx + 1}`}
                           >
@@ -1144,7 +1262,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                         type="button"
                         onClick={() => removeLine(line.key)}
                         disabled={saving}
-                        className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         aria-label={`Remove item ${idx + 1}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1253,7 +1371,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                       )
                                     }
                                     disabled={saving}
-                                    className="tabular-nums w-14 rounded border border-leaf-300 bg-white px-1.5 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none"
+                                    className="tabular-nums w-14 rounded border border-leaf-300 bg-white px-1.5 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
                                   />
                                   <button
                                     type="button"
@@ -1265,7 +1383,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
                                         String(maxForThisLine)
                                       )
                                     }
-                                    className="rounded bg-leaf-100 hover:bg-leaf-200 px-1.5 py-0.5 text-2xs font-bold text-leaf-800 disabled:opacity-40"
+                                    className="rounded bg-leaf-100 hover:bg-leaf-200 px-1.5 py-0.5 text-2xs font-bold text-leaf-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1"
                                   >
                                     Max
                                   </button>
@@ -1359,12 +1477,26 @@ export function NewSale({ onNavigate }: NewSaleProps) {
         <PrintableBillModal
           billId={printBillId}
           balanceSummary={printBalanceSummary}
+          customerPhone={printCustomerPhone}
+          paymentMode={printPaymentMode}
           autoPrint={autoPrintTrigger}
           onClose={() => {
             setPrintBillId(null);
             setPrintBalanceSummary(null);
             setAutoPrintTrigger(false);
           }}
+        />
+      )}
+
+      {/* WhatsApp Share Modal */}
+      {whatsAppModalOpen && lastSavedSale && (
+        <WhatsAppShareModal
+          open={whatsAppModalOpen}
+          billId={lastSavedSale.billId}
+          customerPhone={lastSavedSale.phone}
+          closingBalance={lastSavedSale.closingBalance}
+          paymentMode={lastSavedSale.paymentChoice.toUpperCase()}
+          onClose={() => setWhatsAppModalOpen(false)}
         />
       )}
     </div>

@@ -17,10 +17,10 @@ export function FieldWrap({ label, hint, children }: FieldWrapProps) {
 }
 
 const inputClasses =
-  'w-full rounded-xl border-2 border-leaf-200 bg-white px-4 py-3 text-base text-leaf-950 placeholder:text-stone-400 transition-colors focus:border-leaf-500 focus:outline-none';
+  'w-full rounded-xl border-2 border-leaf-200 bg-white px-4 py-3 text-base text-leaf-950 placeholder:text-stone-400 transition-colors focus:border-leaf-500 focus-visible:ring-2 focus-visible:ring-leaf-500/30 focus:outline-none';
 
 const compactInputClasses =
-  'w-full rounded-lg border-2 border-leaf-200 bg-white px-2.5 py-1.5 text-sm text-leaf-950 placeholder:text-stone-400 transition-colors focus:border-leaf-500 focus:outline-none';
+  'w-full rounded-lg border-2 border-leaf-200 bg-white px-2.5 py-1.5 text-sm text-leaf-950 placeholder:text-stone-400 transition-colors focus:border-leaf-500 focus-visible:ring-2 focus-visible:ring-leaf-500/30 focus:outline-none';
 
 export interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   compact?: boolean;
@@ -52,7 +52,7 @@ export function MoneyInput({ className = '', compact = false, ...rest }: MoneyIn
           compact
             ? compactInputClasses + ' pl-6 pr-2'
             : inputClasses + ' pl-10'
-        } tabular-nums ${className}`}
+        } tabular-nums no-spinner ${className}`}
         {...rest}
       />
     </div>

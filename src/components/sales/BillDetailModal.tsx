@@ -4,6 +4,7 @@ import {
   Boxes,
   IndianRupee,
   Loader2,
+  MessageCircle,
   Printer,
   Smartphone,
   Truck,
@@ -18,6 +19,7 @@ import {
   TextInput,
 } from '@/components/ui';
 import { PrintableBillModal } from '@/components/sales/PrintableBillModal';
+import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
 import { formatDisplayDate, getLocalIsoDate } from '@/services/inventory';
 import { cancelBill, getBillDetail } from '@/services/sales';
 import type { BillDetail, PaymentMode, PaymentStatus } from '@/types/database';
@@ -55,6 +57,7 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [showPrint, setShowPrint] = useState(false);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
 
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true);
@@ -143,14 +146,25 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
               <Badge tone={statusTone(detail.bill.payment_status)}>
                 {statusLabel(detail.bill.payment_status)}
               </Badge>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={Printer}
-                onClick={() => setShowPrint(true)}
-              >
-                Print Receipt
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="!bg-[#25D366] hover:!bg-[#1EBE5D] text-white border-0 shadow-sm"
+                  icon={MessageCircle}
+                  onClick={() => setShowWhatsApp(true)}
+                >
+                  Share on WhatsApp
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Printer}
+                  onClick={() => setShowPrint(true)}
+                >
+                  Print Receipt
+                </Button>
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-3 text-center">
@@ -467,6 +481,15 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
           billId={detail.bill.bill_id}
           initialBillDetail={detail}
           onClose={() => setShowPrint(false)}
+        />
+      )}
+
+      {showWhatsApp && detail && (
+        <WhatsAppShareModal
+          open={showWhatsApp}
+          billId={detail.bill.bill_id}
+          initialBillDetail={detail}
+          onClose={() => setShowWhatsApp(false)}
         />
       )}
     </Modal>

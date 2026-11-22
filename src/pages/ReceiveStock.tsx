@@ -305,8 +305,14 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
       setPaymentNote('');
     } else if (next === 'cash') {
       setPaidUpi('');
+      if (grandTotal > 0) setPaidCash(String(grandTotal));
     } else if (next === 'upi') {
       setPaidCash('');
+      if (grandTotal > 0) setPaidUpi(String(grandTotal));
+    } else if (next === 'split') {
+      if (!paidCash && !paidUpi && grandTotal > 0) {
+        setPaidCash(String(grandTotal));
+      }
     }
   };
 
@@ -600,6 +606,14 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
             e.preventDefault();
             void handleSave(true);
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLElement;
+              if (target.tagName === 'INPUT' && target.getAttribute('type') !== 'submit') {
+                e.preventDefault();
+              }
+            }
+          }}
           className="space-y-3 pb-8"
           noValidate
         >
@@ -708,57 +722,118 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
                 </div>
               </div>
 
-              {/* Row 3: Payment Modes & Amount Inputs */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* Row 3: Payment Amount Input & Mode Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                {/* 1. Payment Amount Input at the beginning */}
+                <div className="flex items-center gap-2">
+                  {paymentChoice === 'cash' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="Cash Amount"
+                        value={paidCash}
+                        onChange={(e) => {
+                          setPaidCash(e.target.value);
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="Cash amount paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'later' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        placeholder="0.00"
+                        value=""
+                        disabled
+                        aria-label="Credit amount (pay later)"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg bg-cream-100/60 opacity-60 cursor-not-allowed"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'upi' && (
+                    <div className="w-32 sm:w-36">
+                      <MoneyInput
+                        compact
+                        min="0"
+                        step="0.01"
+                        placeholder="UPI Amount"
+                        value={paidUpi}
+                        onChange={(e) => {
+                          setPaidUpi(e.target.value);
+                          setFormError(null);
+                        }}
+                        disabled={saving}
+                        aria-label="UPI amount paid"
+                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {paymentChoice === 'split' && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 sm:w-28">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="Cash"
+                          value={paidCash}
+                          onChange={(e) => {
+                            setPaidCash(e.target.value);
+                            setFormError(null);
+                          }}
+                          disabled={saving}
+                          aria-label="Cash split amount"
+                          className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                        />
+                      </div>
+                      <div className="w-24 sm:w-28">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="UPI"
+                          value={paidUpi}
+                          onChange={(e) => {
+                            setPaidUpi(e.target.value);
+                            setFormError(null);
+                          }}
+                          disabled={saving}
+                          aria-label="UPI split amount"
+                          className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Mode Buttons: 1. CASH, 2. CREDIT, 3. UPI, 4. SPLIT */}
                 <div className="inline-flex rounded-xl border border-leaf-200 bg-cream-100 p-1 shrink-0">
-                  {(['later', 'cash', 'upi', 'split'] as const).map((opt) => (
+                  {(['cash', 'later', 'upi', 'split'] as const).map((opt) => (
                     <button
                       key={opt}
                       type="button"
                       onClick={() => handlePaymentChoice(opt)}
                       disabled={saving}
-                      className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${paymentChoice === opt
-                          ? 'bg-leaf-600 text-white shadow-xs'
+                      className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1 ${
+                        paymentChoice === opt
+                          ? opt === 'later'
+                            ? 'bg-mango-600 text-white shadow-xs'
+                            : 'bg-leaf-600 text-white shadow-xs'
                           : 'text-leaf-800 hover:bg-leaf-50'
-                        }`}
+                      }`}
                     >
                       {opt === 'later' ? 'CREDIT' : opt.toUpperCase()}
                     </button>
                   ))}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {(paymentChoice === 'cash' || paymentChoice === 'split') && (
-                    <div className="w-28">
-                      <MoneyInput
-                        compact
-                        min="0"
-                        step="0.01"
-                        placeholder="Cash"
-                        value={paidCash}
-                        onChange={(e) => setPaidCash(e.target.value)}
-                        disabled={saving}
-                        aria-label="Cash paid"
-                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
-                      />
-                    </div>
-                  )}
-
-                  {(paymentChoice === 'upi' || paymentChoice === 'split') && (
-                    <div className="w-28">
-                      <MoneyInput
-                        compact
-                        min="0"
-                        step="0.01"
-                        placeholder="UPI"
-                        value={paidUpi}
-                        onChange={(e) => setPaidUpi(e.target.value)}
-                        disabled={saving}
-                        aria-label="UPI paid"
-                        className="!h-9 !py-1.5 !text-sm font-bold rounded-lg"
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -896,7 +971,7 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
                             type="button"
                             onClick={() => removeLine(line.key)}
                             disabled={saving}
-                            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                             title={`Remove row ${idx + 1}`}
                             aria-label={`Remove row ${idx + 1}`}
                           >
@@ -958,7 +1033,7 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
                         type="button"
                         onClick={() => removeLine(line.key)}
                         disabled={saving}
-                        className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         aria-label={`Remove row ${idx + 1}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

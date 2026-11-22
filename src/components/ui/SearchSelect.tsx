@@ -2,6 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronsUpDown, Search } from 'lucide-react';
 
+function getFocusableElements(): HTMLElement[] {
+  const selector =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  return Array.from(document.querySelectorAll<HTMLElement>(selector)).filter(
+    (el) => el.offsetParent !== null && !el.closest('[data-portal-dropdown]')
+  );
+}
+
+function focusNextElement(current: HTMLElement, reverse = false) {
+  const focusables = getFocusableElements();
+  const index = focusables.indexOf(current);
+  if (index !== -1) {
+    const nextIndex = reverse ? index - 1 : index + 1;
+    if (nextIndex >= 0 && nextIndex < focusables.length) {
+      focusables[nextIndex].focus();
+      return;
+    }
+  }
+  current.focus();
+}
+
 export interface SearchOption {
   id: string;
   label: string;
@@ -34,9 +55,11 @@ export function SearchSelect({
 }: SearchSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const [coords, setCoords] = useState<{
     top?: number;
@@ -55,6 +78,20 @@ export function SearchSelect({
       (o) => o.label.toLowerCase().includes(q) || (o.sublabel ?? '').toLowerCase().includes(q)
     );
   }, [options, query]);
+
+  useEffect(() => {
+    if (open) {
+      const selectedIdx = filtered.findIndex((o) => o.id === value);
+      setHighlightedIndex(selectedIdx >= 0 ? selectedIdx : 0);
+    }
+  }, [open, filtered, value]);
+
+  useEffect(() => {
+    if (open && listRef.current) {
+      const item = listRef.current.children[highlightedIndex] as HTMLElement | undefined;
+      item?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [open, highlightedIndex]);
 
   const updatePosition = useCallback(() => {
     if (!buttonRef.current) return;
@@ -111,21 +148,12 @@ export function SearchSelect({
       }
     };
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        buttonRef.current?.focus();
-      }
-    };
-
     document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKeyDown);
 
     return () => {
       window.removeEventListener('scroll', handleScrollOrResize, true);
       window.removeEventListener('resize', handleScrollOrResize);
       document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open, updatePosition]);
 
@@ -135,6 +163,12 @@ export function SearchSelect({
     setOpen(true);
     setQuery('');
     requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setOpen(false);
+    buttonRef.current?.focus();
   };
 
   return (
@@ -149,7 +183,14 @@ export function SearchSelect({
           if (open) setOpen(false);
           else openList();
         }}
-        className={`flex w-full items-center justify-between gap-2 border-2 border-leaf-200 bg-white text-left transition-colors hover:border-leaf-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf-500 ${
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openList();
+          }
+        }}
+        className={`flex w-full items-center justify-between gap-2 border-2 border-leaf-200 bg-white text-left transition-colors hover:border-leaf-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf-500 focus-visible:ring-2 focus-visible:ring-leaf-500/30 ${
           compact ? 'rounded-lg px-2.5 py-1.5 text-sm' : 'rounded-xl px-4 py-3 text-base'
         } ${
           disabled ? 'opacity-50 cursor-not-allowed bg-stone-50' : ''
@@ -179,6 +220,7 @@ export function SearchSelect({
         createPortal(
           <div
             ref={dropdownRef}
+            data-portal-dropdown="true"
             style={{
               position: 'fixed',
               top: coords.top !== undefined ? `${coords.top}px` : undefined,
@@ -194,28 +236,58 @@ export function SearchSelect({
               <input
                 ref={inputRef}
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setHighlightedIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedIndex((prev) => (filtered.length ? (prev + 1) % filtered.length : 0));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedIndex((prev) => (filtered.length ? (prev - 1 + filtered.length) % filtered.length : 0));
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filtered[highlightedIndex]) {
+                      handleSelect(filtered[highlightedIndex].id);
+                    }
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setOpen(false);
+                    buttonRef.current?.focus();
+                  } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    if (!e.shiftKey && filtered[highlightedIndex]) {
+                      onChange(filtered[highlightedIndex].id);
+                    }
+                    setOpen(false);
+                    if (buttonRef.current) {
+                      focusNextElement(buttonRef.current, e.shiftKey);
+                    }
+                  }
+                }}
                 placeholder="Type to search…"
                 className="w-full bg-transparent text-sm text-leaf-950 placeholder:text-stone-400 focus:outline-none"
               />
             </div>
-            <ul role="listbox" className="max-h-60 overflow-y-auto py-1">
+            <ul ref={listRef} role="listbox" className="max-h-60 overflow-y-auto py-1">
               {filtered.length === 0 && (
                 <li className="px-3 py-3 text-center text-sm text-stone-500">No match found</li>
               )}
-              {filtered.map((o) => {
+              {filtered.map((o, idx) => {
                 const isSelected = o.id === value;
+                const isHighlighted = idx === highlightedIndex;
                 return (
                   <li key={o.id} role="option" aria-selected={isSelected}>
                     <button
                       type="button"
-                      onClick={() => {
-                        onChange(o.id);
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-leaf-50 ${
-                        isSelected ? 'bg-leaf-50 font-bold' : ''
-                      }`}
+                      tabIndex={-1}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      onClick={() => handleSelect(o.id)}
+                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                        isHighlighted ? 'bg-leaf-100/90 text-leaf-950 font-bold' : 'hover:bg-leaf-50'
+                      } ${isSelected ? 'font-extrabold text-leaf-950' : ''}`}
                     >
                       {icon && o.emoji && (
                         <span className="text-xl" aria-hidden>{o.emoji}</span>

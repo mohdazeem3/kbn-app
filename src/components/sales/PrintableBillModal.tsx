@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Printer, X } from 'lucide-react';
+import { Check, Loader2, MessageCircle, Printer, X } from 'lucide-react';
 import { Button, Modal } from '@/components/ui';
 import { formatDisplayDate } from '@/services/inventory';
 import { getBillDetail } from '@/services/sales';
 import { listCustomerBalances } from '@/services/accounts';
+import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
+import { normalizeIndianMobile } from '@/services/whatsapp';
 import type { BillDetail } from '@/types/database';
 
 export interface CustomerBalanceSummary {
@@ -17,6 +19,8 @@ interface PrintableBillModalProps {
   billId: string | null;
   initialBillDetail?: BillDetail | null;
   balanceSummary?: CustomerBalanceSummary | null;
+  customerPhone?: string | null;
+  paymentMode?: string | null;
   autoPrint?: boolean;
   onClose: () => void;
 }
@@ -25,6 +29,8 @@ export function PrintableBillModal({
   billId,
   initialBillDetail = null,
   balanceSummary = null,
+  customerPhone = null,
+  paymentMode = null,
   autoPrint = false,
   onClose,
 }: PrintableBillModalProps) {
@@ -35,6 +41,7 @@ export function PrintableBillModal({
     balanceSummary
   );
   const [printed, setPrinted] = useState(false);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
 
   useEffect(() => {
     setResolvedBalance(balanceSummary);
@@ -189,11 +196,21 @@ export function PrintableBillModal({
         ) : bill ? (
           <>
             {/* Top Action Bar in Modal */}
-            <div className="flex items-center justify-between bg-cream-100 rounded-xl p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-cream-100 rounded-xl p-3">
               <span className="text-xs font-bold text-leaf-800">
                 80mm Thermal Receipt Preview
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className="!bg-[#25D366] hover:!bg-[#1EBE5D] text-white border-0 shadow-sm"
+                  icon={MessageCircle}
+                  onClick={() => setShowWhatsApp(true)}
+                >
+                  Share on WhatsApp
+                </Button>
                 <Button
                   type="button"
                   variant="secondary"
@@ -402,6 +419,19 @@ export function PrintableBillModal({
           </>
         ) : null}
       </div>
+
+      {showWhatsApp && bill && (
+        <WhatsAppShareModal
+          open={showWhatsApp}
+          billId={bill.bill_id}
+          initialBillDetail={detail}
+          customerPhone={customerPhone}
+          closingBalance={closingBal}
+          paymentMode={paymentMode}
+          autoOpenWhatsApp={Boolean(customerPhone && normalizeIndianMobile(customerPhone))}
+          onClose={() => setShowWhatsApp(false)}
+        />
+      )}
     </Modal>
   );
 }
