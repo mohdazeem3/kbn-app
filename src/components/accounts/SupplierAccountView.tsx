@@ -35,6 +35,7 @@ import {
   getSupplierAccountDetail,
   setSupplierOpeningBalance,
 } from '@/services/accounts';
+import { useCacheInvalidation } from '@/services/cache';
 import { formatDisplayDate, getLocalIsoDate } from '@/services/inventory';
 import type {
   DeliveryBalance,
@@ -48,6 +49,7 @@ interface SupplierAccountViewProps {
   supplierId: string;
   onBack: () => void;
   onDataChanged?: () => void;
+  isActive?: boolean;
 }
 
 type AccountTab = 'ledger' | 'deliveries' | 'payments' | 'opening';
@@ -94,6 +96,7 @@ export function SupplierAccountView({
   supplierId,
   onBack,
   onDataChanged,
+  isActive = true,
 }: SupplierAccountViewProps) {
   const [detail, setDetail] = useState<SupplierAccountDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,11 +129,11 @@ export function SupplierAccountView({
   const [cancelOpeningReason, setCancelOpeningReason] = useState('');
   const [submittingCancelOpening, setSubmittingCancelOpening] = useState(false);
 
-  const loadAccount = useCallback(async () => {
-    setLoading(true);
+  const loadAccount = useCallback(async (isBackground = false, forceRefresh = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
-      const data = await getSupplierAccountDetail(supplierId);
+      const data = await getSupplierAccountDetail(supplierId, { forceRefresh });
       setDetail(data);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load supplier account.');
@@ -142,6 +145,8 @@ export function SupplierAccountView({
   useEffect(() => {
     void loadAccount();
   }, [loadAccount]);
+
+  useCacheInvalidation(['supplier_ledger', `supplier_ledger:${supplierId}`], () => void loadAccount(true), { isActive });
 
   const unpaidDeliveries = useMemo(
     () =>

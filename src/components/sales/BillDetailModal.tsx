@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Ban,
   Boxes,
@@ -58,6 +58,32 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [showPrint, setShowPrint] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const isClosingNestedRef = useRef(false);
+  const nestedCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (nestedCloseTimerRef.current) clearTimeout(nestedCloseTimerRef.current);
+    };
+  }, []);
+
+  const handleClosePrint = useCallback(() => {
+    setShowPrint(false);
+    isClosingNestedRef.current = true;
+    if (nestedCloseTimerRef.current) clearTimeout(nestedCloseTimerRef.current);
+    nestedCloseTimerRef.current = setTimeout(() => {
+      isClosingNestedRef.current = false;
+    }, 400);
+  }, []);
+
+  const handleCloseWhatsApp = useCallback(() => {
+    setShowWhatsApp(false);
+    isClosingNestedRef.current = true;
+    if (nestedCloseTimerRef.current) clearTimeout(nestedCloseTimerRef.current);
+    nestedCloseTimerRef.current = setTimeout(() => {
+      isClosingNestedRef.current = false;
+    }, 400);
+  }, []);
 
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true);
@@ -77,9 +103,13 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
       setDetail(null);
       setShowCancelForm(false);
       setCancelError(null);
+      setShowPrint(false);
+      setShowWhatsApp(false);
       return;
     }
     setShowCancelForm(false);
+    setShowPrint(false);
+    setShowWhatsApp(false);
     setCancelReason('');
     setRefundMode(null);
     setRefundDate(getLocalIsoDate());
@@ -152,7 +182,9 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
                   size="sm"
                   className="!bg-[#25D366] hover:!bg-[#1EBE5D] text-white border-0 shadow-sm"
                   icon={MessageCircle}
-                  onClick={() => setShowWhatsApp(true)}
+                  onClick={() => {
+                    if (!isClosingNestedRef.current) setShowWhatsApp(true);
+                  }}
                 >
                   Share on WhatsApp
                 </Button>
@@ -160,7 +192,9 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
                   variant="secondary"
                   size="sm"
                   icon={Printer}
-                  onClick={() => setShowPrint(true)}
+                  onClick={() => {
+                    if (!isClosingNestedRef.current) setShowPrint(true);
+                  }}
                 >
                   Print Receipt
                 </Button>
@@ -480,7 +514,7 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
         <PrintableBillModal
           billId={detail.bill.bill_id}
           initialBillDetail={detail}
-          onClose={() => setShowPrint(false)}
+          onClose={handleClosePrint}
         />
       )}
 
@@ -489,7 +523,7 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
           open={showWhatsApp}
           billId={detail.bill.bill_id}
           initialBillDetail={detail}
-          onClose={() => setShowWhatsApp(false)}
+          onClose={handleCloseWhatsApp}
         />
       )}
     </Modal>

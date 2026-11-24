@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, Eye, Printer, RotateCw, Search, ShoppingCart } from 'lucide-react';
 import {
   AlertBanner,
@@ -15,6 +15,7 @@ import { BillDetailModal } from '@/components/sales/BillDetailModal';
 import { PrintableBillModal } from '@/components/sales/PrintableBillModal';
 import { formatDisplayDate } from '@/services/inventory';
 import { listBills } from '@/services/sales';
+import { useCacheInvalidation } from '@/services/cache';
 import type { BillBalance, PaymentStatus } from '@/types/database';
 import type { Page } from './pageTypes';
 
@@ -35,7 +36,13 @@ function paymentLabel(status: PaymentStatus): string {
   return 'Cancelled';
 }
 
-export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
+export function BillsPage({
+  onNavigate,
+  isActive = true,
+}: {
+  onNavigate: (p: Page) => void;
+  isActive?: boolean;
+}) {
   const [bills, setBills] = useState<BillBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +58,44 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [printBillId, setPrintBillId] = useState<string | null>(null);
 
-  const loadBills = useCallback(async () => {
-    setLoading(true);
+  const isClosingRef = useRef(false);
+  const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  const handleOpenDetail = useCallback((billId: string) => {
+    if (isClosingRef.current) return;
+    setPrintBillId(null);
+    setSelectedBillId(billId);
+  }, []);
+
+  const handleOpenPrint = useCallback((billId: string) => {
+    if (isClosingRef.current) return;
+    setSelectedBillId(null);
+    setPrintBillId(billId);
+  }, []);
+
+  const handleCloseModals = useCallback(() => {
+    setSelectedBillId(null);
+    setPrintBillId(null);
+    isClosingRef.current = true;
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      isClosingRef.current = false;
+    }, 400);
+  }, []);
+
+  const isAnyModalOpen = Boolean(selectedBillId || printBillId);
+
+  const loadBills = useCallback(async (isBackground = false, forceRefresh = false) => {
+    if (!isBackground) setLoading(true);
     setError(null);
     try {
-      const data = await listBills();
+      const data = await listBills({ forceRefresh });
       setBills(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load sales history.');
@@ -67,6 +107,8 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   useEffect(() => {
     void loadBills();
   }, [loadBills]);
+
+  useCacheInvalidation(['bills'], () => void loadBills(true), { isActive });
 
   const customerChoices = useMemo(() => {
     const map = new Map<string, string>();
@@ -132,7 +174,7 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         title="Sales History"
         action={
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" size="lg" icon={RotateCw} onClick={() => void loadBills()}>
+            <Button variant="secondary" size="lg" icon={RotateCw} onClick={() => void loadBills(false, true)}>
               Refresh
             </Button>
             <Button variant="accent" size="lg" icon={ShoppingCart} onClick={() => onNavigate('sale')}>
@@ -269,7 +311,11 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
               }
             />
           ) : (
-            <div className="space-y-3">
+            <div
+              className={`space-y-3 ${
+                isAnyModalOpen ? 'pointer-events-none select-none' : ''
+              }`}
+            >
               {filteredBills.map((bill) => (
                 <Card key={bill.bill_id} className="p-5">
                   <div className="flex flex-wrap items-center justify-between gap-4">
@@ -321,7 +367,11 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                         <Button
                           variant="secondary"
                           icon={Printer}
-                          onClick={() => setPrintBillId(bill.bill_id)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleOpenPrint(bill.bill_id);
+                          }}
                           title="Print Receipt"
                         >
                           Print
@@ -329,7 +379,11 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                         <Button
                           variant="secondary"
                           icon={Eye}
-                          onClick={() => setSelectedBillId(bill.bill_id)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleOpenDetail(bill.bill_id);
+                          }}
                         >
                           View Details
                         </Button>
@@ -345,7 +399,7 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 
       <BillDetailModal
         billId={selectedBillId}
-        onClose={() => setSelectedBillId(null)}
+        onClose={handleCloseModals}
         onCancelled={(billNo) => {
           setNotice(
             `Cancelled bill ${billNo}. Stock boxes were restored and audit history was preserved.`
@@ -357,7 +411,7 @@ export function BillsPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
       {printBillId && (
         <PrintableBillModal
           billId={printBillId}
-          onClose={() => setPrintBillId(null)}
+          onClose={handleCloseModals}
         />
       )}
     </div>

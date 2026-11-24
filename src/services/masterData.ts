@@ -1,4 +1,11 @@
 import { supabase } from '@/lib/supabase';
+import {
+  appCache,
+  TTL,
+  invalidateOnFruitMutation,
+  invalidateOnSupplierMutation,
+  invalidateOnCustomerMutation,
+} from './cache';
 import type {
   Customer,
   CustomerInput,
@@ -82,15 +89,21 @@ function normalizeOptionalRate(value: number | null | undefined): number | null 
 // Fruits (Dynamic Fruit Categories)
 // ----------------------------------------------------------------------------
 
-export async function listFruits(): Promise<Fruit[]> {
-  const { data, error } = await supabase
-    .from('fruits')
-    .select('id, name, active, created_at, updated_at')
-    .order('active', { ascending: false })
-    .order('name', { ascending: true });
+export async function listFruits(options?: { forceRefresh?: boolean }): Promise<Fruit[]> {
+  return appCache.fetch(
+    'fruits',
+    async () => {
+      const { data, error } = await supabase
+        .from('fruits')
+        .select('id, name, active, created_at, updated_at')
+        .order('active', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (error) throw formatMasterError(error, 'fruit category');
-  return (data ?? []) as Fruit[];
+      if (error) throw formatMasterError(error, 'fruit category');
+      return (data ?? []) as Fruit[];
+    },
+    { ttlMs: TTL.MASTER_DATA, tags: ['fruits', 'master'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 export async function createFruit(input: FruitInput): Promise<Fruit> {
@@ -102,6 +115,7 @@ export async function createFruit(input: FruitInput): Promise<Fruit> {
     .single();
 
   if (error) throw formatMasterError(error, 'fruit category');
+  invalidateOnFruitMutation();
   return data as Fruit;
 }
 
@@ -115,6 +129,7 @@ export async function updateFruit(id: string, input: FruitInput): Promise<Fruit>
     .single();
 
   if (error) throw formatMasterError(error, 'fruit category');
+  invalidateOnFruitMutation();
   return data as Fruit;
 }
 
@@ -127,6 +142,7 @@ export async function setFruitActive(id: string, active: boolean): Promise<Fruit
     .single();
 
   if (error) throw formatMasterError(error, 'fruit category');
+  invalidateOnFruitMutation();
   return data as Fruit;
 }
 
@@ -134,20 +150,30 @@ export async function setFruitActive(id: string, active: boolean): Promise<Fruit
 // Fruit Varieties / Grades (Linked to a Fruit Category)
 // ----------------------------------------------------------------------------
 
-export async function listFruitVarieties(fruitId?: string): Promise<FruitVariety[]> {
-  let query = supabase
-    .from('fruit_varieties')
-    .select('id, fruit_id, name, default_sell_rate, active, created_at, updated_at')
-    .order('active', { ascending: false })
-    .order('name', { ascending: true });
+export async function listFruitVarieties(
+  fruitId?: string,
+  options?: { forceRefresh?: boolean }
+): Promise<FruitVariety[]> {
+  const cacheKey = fruitId ? `varieties:${fruitId}` : 'varieties:all';
+  return appCache.fetch(
+    cacheKey,
+    async () => {
+      let query = supabase
+        .from('fruit_varieties')
+        .select('id, fruit_id, name, default_sell_rate, active, created_at, updated_at')
+        .order('active', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (fruitId) {
-    query = query.eq('fruit_id', fruitId);
-  }
+      if (fruitId) {
+        query = query.eq('fruit_id', fruitId);
+      }
 
-  const { data, error } = await query;
-  if (error) throw formatMasterError(error, 'fruit variety');
-  return (data ?? []) as FruitVariety[];
+      const { data, error } = await query;
+      if (error) throw formatMasterError(error, 'fruit variety');
+      return (data ?? []) as FruitVariety[];
+    },
+    { ttlMs: TTL.MASTER_DATA, tags: ['varieties', 'master'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 export async function createFruitVariety(input: FruitVarietyInput): Promise<FruitVariety> {
@@ -168,6 +194,7 @@ export async function createFruitVariety(input: FruitVarietyInput): Promise<Frui
     .single();
 
   if (error) throw formatMasterError(error, 'fruit variety');
+  invalidateOnFruitMutation();
   return data as FruitVariety;
 }
 
@@ -193,6 +220,7 @@ export async function updateFruitVariety(
     .single();
 
   if (error) throw formatMasterError(error, 'fruit variety');
+  invalidateOnFruitMutation();
   return data as FruitVariety;
 }
 
@@ -205,6 +233,7 @@ export async function setFruitVarietyActive(id: string, active: boolean): Promis
     .single();
 
   if (error) throw formatMasterError(error, 'fruit variety');
+  invalidateOnFruitMutation();
   return data as FruitVariety;
 }
 
@@ -258,21 +287,27 @@ function mapSupplierRow(row: SupplierJoinRow): SupplierWithFruit {
   };
 }
 
-export async function listSuppliers(): Promise<SupplierWithFruit[]> {
-  const { data, error } = await supabase
-    .from('suppliers')
-    .select(`
-      id, name, fruit_id, phone, active, created_at, updated_at,
-      supplier_fruits (
-        fruit_id,
-        fruits ( id, name, active )
-      )
-    `)
-    .order('active', { ascending: false })
-    .order('name', { ascending: true });
+export async function listSuppliers(options?: { forceRefresh?: boolean }): Promise<SupplierWithFruit[]> {
+  return appCache.fetch(
+    'suppliers',
+    async () => {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select(`
+          id, name, fruit_id, phone, active, created_at, updated_at,
+          supplier_fruits (
+            fruit_id,
+            fruits ( id, name, active )
+          )
+        `)
+        .order('active', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (error) throw formatMasterError(error, 'supplier');
-  return ((data ?? []) as unknown as SupplierJoinRow[]).map(mapSupplierRow);
+      if (error) throw formatMasterError(error, 'supplier');
+      return ((data ?? []) as unknown as SupplierJoinRow[]).map(mapSupplierRow);
+    },
+    { ttlMs: TTL.MASTER_DATA, tags: ['suppliers', 'master'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 export async function createSupplier(input: SupplierInput): Promise<SupplierWithFruit> {
@@ -309,7 +344,9 @@ export async function createSupplier(input: SupplierInput): Promise<SupplierWith
     .single();
 
   if (fetchError) throw formatMasterError(fetchError, 'supplier');
-  return mapSupplierRow(row as unknown as SupplierJoinRow);
+  const result = mapSupplierRow(row as unknown as SupplierJoinRow);
+  invalidateOnSupplierMutation(result.id);
+  return result;
 }
 
 export async function updateSupplier(
@@ -350,7 +387,9 @@ export async function updateSupplier(
     .single();
 
   if (fetchError) throw formatMasterError(fetchError, 'supplier');
-  return mapSupplierRow(row as unknown as SupplierJoinRow);
+  const result = mapSupplierRow(row as unknown as SupplierJoinRow);
+  invalidateOnSupplierMutation(result.id);
+  return result;
 }
 
 export async function setSupplierActive(
@@ -371,22 +410,30 @@ export async function setSupplierActive(
     .single();
 
   if (error) throw formatMasterError(error, 'supplier');
-  return mapSupplierRow(data as unknown as SupplierJoinRow);
+  const result = mapSupplierRow(data as unknown as SupplierJoinRow);
+  invalidateOnSupplierMutation(result.id);
+  return result;
 }
 
 // ----------------------------------------------------------------------------
 // Customers (Registered Buyers; Walk-in Cash Customer Uses NULL on Bills)
 // ----------------------------------------------------------------------------
 
-export async function listCustomers(): Promise<Customer[]> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('id, name, phone, active, created_at, updated_at')
-    .order('active', { ascending: false })
-    .order('name', { ascending: true });
+export async function listCustomers(options?: { forceRefresh?: boolean }): Promise<Customer[]> {
+  return appCache.fetch(
+    'customers',
+    async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, phone, active, created_at, updated_at')
+        .order('active', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (error) throw formatMasterError(error, 'customer');
-  return (data ?? []) as Customer[];
+      if (error) throw formatMasterError(error, 'customer');
+      return (data ?? []) as Customer[];
+    },
+    { ttlMs: TTL.MASTER_DATA, tags: ['customers', 'master'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 export async function createCustomer(input: CustomerInput): Promise<Customer> {
@@ -400,7 +447,9 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
     .single();
 
   if (error) throw formatMasterError(error, 'customer');
-  return data as Customer;
+  const result = data as Customer;
+  invalidateOnCustomerMutation(result.id);
+  return result;
 }
 
 export async function updateCustomer(id: string, input: CustomerInput): Promise<Customer> {
@@ -415,7 +464,9 @@ export async function updateCustomer(id: string, input: CustomerInput): Promise<
     .single();
 
   if (error) throw formatMasterError(error, 'customer');
-  return data as Customer;
+  const result = data as Customer;
+  invalidateOnCustomerMutation(result.id);
+  return result;
 }
 
 export async function setCustomerActive(id: string, active: boolean): Promise<Customer> {
@@ -427,5 +478,7 @@ export async function setCustomerActive(id: string, active: boolean): Promise<Cu
     .single();
 
   if (error) throw formatMasterError(error, 'customer');
-  return data as Customer;
+  const result = data as Customer;
+  invalidateOnCustomerMutation(result.id);
+  return result;
 }

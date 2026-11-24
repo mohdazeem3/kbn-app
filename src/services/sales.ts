@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { appCache, TTL, invalidateOnSale } from './cache';
 import type {
   BillBalance,
   BillBatchAllocationDetail,
@@ -149,6 +150,7 @@ export async function createBill(input: CreateBillInput): Promise<BillBalance> {
     .single();
 
   if (fetchError || !billRow) {
+    invalidateOnSale(input.customer_id);
     return {
       bill_id: createdId,
       bill_no: 'Saved',
@@ -169,6 +171,7 @@ export async function createBill(input: CreateBillInput): Promise<BillBalance> {
     };
   }
 
+  invalidateOnSale(input.customer_id);
   return normalizeBillBalance(billRow as BillBalance);
 }
 
@@ -181,20 +184,33 @@ function normalizeBillBalance(row: BillBalance): BillBalance {
   };
 }
 
-export async function listBills(): Promise<BillBalance[]> {
-  const { data, error } = await supabase
-    .from('bill_balances')
-    .select(
-      'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
-    )
-    .order('bill_date', { ascending: false })
-    .order('created_at', { ascending: false });
+export async function listBills(options?: { forceRefresh?: boolean; limit?: number }): Promise<BillBalance[]> {
+  const cacheKey = options?.limit ? `bills:limit:${options.limit}` : 'bills:all';
+  return appCache.fetch(
+    cacheKey,
+    async () => {
+      let query = supabase
+        .from('bill_balances')
+        .select(
+          'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+        )
+        .order('bill_date', { ascending: false })
+        .order('created_at', { ascending: false });
 
-  if (error) {
-    throw formatSalesError(error, 'Could not load sales history.');
-  }
+      if (options?.limit) {
+        query = query.limit(options.limit);
+      }
 
-  return ((data ?? []) as BillBalance[]).map(normalizeBillBalance);
+      const { data, error } = await query;
+
+      if (error) {
+        throw formatSalesError(error, 'Could not load sales history.');
+      }
+
+      return ((data ?? []) as BillBalance[]).map(normalizeBillBalance);
+    },
+    { ttlMs: TTL.BILLS, tags: ['bills'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 interface RawBatchAllocRow {
@@ -399,4 +415,6 @@ export async function cancelBill(input: CancelBillInput): Promise<void> {
   if (error) {
     throw formatSalesError(error, 'Could not cancel bill.');
   }
+
+  invalidateOnSale();
 }

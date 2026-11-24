@@ -23,6 +23,7 @@ import {
 } from '@/components/ui';
 import type { SearchOption } from '@/components/ui';
 import { listFruits, listFruitVarieties, listSuppliers } from '@/services/masterData';
+import { useCacheInvalidation } from '@/services/cache';
 import {
   generateIdempotencyKey,
   getLocalIsoDate,
@@ -105,9 +106,10 @@ function parseNonNegativeMoney(value: string): number {
 
 interface ReceiveStockProps {
   onNavigate?: (p: Page) => void;
+  isActive?: boolean;
 }
 
-export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
+export function ReceiveStock({ onNavigate, isActive = true }: ReceiveStockProps) {
   const [fruits, setFruits] = useState<Fruit[]>([]);
   const [varieties, setVarieties] = useState<FruitVariety[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierWithFruit[]>([]);
@@ -139,8 +141,8 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
   const [printSnapshot, setPrintSnapshot] = useState<DeliveryPrintSnapshot | null>(null);
   const [autoPrintTrigger, setAutoPrintTrigger] = useState(false);
 
-  const loadMasterData = useCallback(async () => {
-    setLoading(true);
+  const loadMasterData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
       const [fruitList, varietyList, supplierList] = await Promise.all([
@@ -161,6 +163,8 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
   useEffect(() => {
     void loadMasterData();
   }, [loadMasterData]);
+
+  useCacheInvalidation(['suppliers', 'fruits', 'varieties'], () => void loadMasterData(true), { isActive });
 
   const activeFruits = useMemo(() => fruits.filter((f) => f.active), [fruits]);
   const activeSuppliers = useMemo(() => suppliers.filter((s) => s.active), [suppliers]);
@@ -1175,6 +1179,7 @@ export function ReceiveStock({ onNavigate }: ReceiveStockProps) {
           deliveryId={printDeliveryId}
           snapshot={printSnapshot}
           autoPrint={autoPrintTrigger}
+          onAutoPrintDone={() => setAutoPrintTrigger(false)}
           onClose={() => {
             setPrintDeliveryId(null);
             setPrintSnapshot(null);

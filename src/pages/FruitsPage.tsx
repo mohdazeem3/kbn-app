@@ -24,9 +24,10 @@ import {
   updateFruit,
   updateFruitVariety,
 } from '@/services/masterData';
+import { useCacheInvalidation } from '@/services/cache';
 import type { Fruit, FruitInput, FruitVariety, FruitVarietyInput } from '@/types/database';
 
-export function FruitsPage() {
+export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
   const [fruits, setFruits] = useState<Fruit[]>([]);
   const [varieties, setVarieties] = useState<FruitVariety[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +47,8 @@ export function FruitsPage() {
   const [editingVariety, setEditingVariety] = useState<FruitVariety | null>(null);
   const [defaultVarietyFruitId, setDefaultVarietyFruitId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
       const [fruitList, varietyList] = await Promise.all([listFruits(), listFruitVarieties()]);
@@ -63,6 +64,8 @@ export function FruitsPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useCacheInvalidation(['fruits', 'varieties'], () => void loadData(true), { isActive });
 
   const varietiesByFruit = useMemo(() => {
     const map = new Map<string, FruitVariety[]>();

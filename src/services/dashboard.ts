@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { appCache, TTL } from './cache';
 import type { BillBalance, DashboardData, DashboardOverview } from '@/types/database';
 
 export const SHOP_TIMEZONE = 'Asia/Kolkata';
@@ -89,40 +90,49 @@ function normalizeOverview(row: DashboardOverview): DashboardOverview {
  * (which computes today using public.shop_today() / Asia/Kolkata) and recent bills
  * from public.bill_balances without duplicating financial logic on the client.
  */
-export async function getDashboardData(latestLimit = 8): Promise<DashboardData> {
-  const [overviewRes, billsRes] = await Promise.all([
-    supabase
-      .from('dashboard_overview')
-      .select(
-        'summary_date, today_bills_count, today_sales_total, today_cash_received, today_upi_received, today_cash_refunded, today_upi_refunded, today_net_cash_received, today_net_upi_received, total_customer_dues, total_supplier_dues'
-      )
-      .single(),
-    supabase
-      .from('bill_balances')
-      .select(
-        'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
-      )
-      .order('bill_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(latestLimit),
-  ]);
+export async function getDashboardData(
+  latestLimit = 8,
+  options?: { forceRefresh?: boolean }
+): Promise<DashboardData> {
+  return appCache.fetch(
+    `dashboard:${latestLimit}`,
+    async () => {
+      const [overviewRes, billsRes] = await Promise.all([
+        supabase
+          .from('dashboard_overview')
+          .select(
+            'summary_date, today_bills_count, today_sales_total, today_cash_received, today_upi_received, today_cash_refunded, today_upi_refunded, today_net_cash_received, today_net_upi_received, total_customer_dues, total_supplier_dues'
+          )
+          .single(),
+        supabase
+          .from('bill_balances')
+          .select(
+            'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+          )
+          .order('bill_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(latestLimit),
+      ]);
 
-  if (overviewRes.error) {
-    throw formatDashboardError(overviewRes.error, 'Could not load dashboard summary.');
-  }
-  if (billsRes.error) {
-    throw formatDashboardError(billsRes.error, 'Could not load latest sales.');
-  }
+      if (overviewRes.error) {
+        throw formatDashboardError(overviewRes.error, 'Could not load dashboard summary.');
+      }
+      if (billsRes.error) {
+        throw formatDashboardError(billsRes.error, 'Could not load latest sales.');
+      }
 
-  const latestBills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
-    ...b,
-    subtotal: Number(b.subtotal),
-    amount_paid: Number(b.amount_paid),
-    outstanding_amount: Number(b.outstanding_amount),
-  }));
+      const latestBills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
+        ...b,
+        subtotal: Number(b.subtotal),
+        amount_paid: Number(b.amount_paid),
+        outstanding_amount: Number(b.outstanding_amount),
+      }));
 
-  return {
-    overview: normalizeOverview(overviewRes.data as DashboardOverview),
-    latestBills,
-  };
+      return {
+        overview: normalizeOverview(overviewRes.data as DashboardOverview),
+        latestBills,
+      };
+    },
+    { ttlMs: TTL.DASHBOARD, tags: ['dashboard'], forceRefresh: options?.forceRefresh }
+  );
 }

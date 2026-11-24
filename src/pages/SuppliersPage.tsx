@@ -22,6 +22,7 @@ import {
   setSupplierActive,
   updateSupplier,
 } from '@/services/masterData';
+import { useCacheInvalidation } from '@/services/cache';
 import type {
   Fruit,
   SupplierBalance,
@@ -32,9 +33,10 @@ import type { Page } from './pageTypes';
 
 interface SuppliersPageProps {
   onNavigate?: (p: Page) => void;
+  isActive?: boolean;
 }
 
-export function SuppliersPage({ onNavigate }: SuppliersPageProps) {
+export function SuppliersPage({ onNavigate, isActive = true }: SuppliersPageProps) {
   const [suppliers, setSuppliers] = useState<SupplierBalance[]>([]);
   const [fruits, setFruits] = useState<Fruit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,8 +54,8 @@ export function SuppliersPage({ onNavigate }: SuppliersPageProps) {
   const [editing, setEditing] = useState<SupplierWithFruit | null>(null);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
       const [supplierList, fruitList] = await Promise.all([
@@ -72,6 +74,8 @@ export function SuppliersPage({ onNavigate }: SuppliersPageProps) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useCacheInvalidation(['supplier_balances', 'suppliers', 'fruits'], () => void loadData(true), { isActive });
 
   const counts = useMemo(() => {
     let active = 0;
@@ -179,6 +183,7 @@ export function SuppliersPage({ onNavigate }: SuppliersPageProps) {
         supplierId={selectedSupplierId}
         onBack={() => setSelectedSupplierId(null)}
         onDataChanged={() => void loadData()}
+        isActive={isActive}
       />
     );
   }

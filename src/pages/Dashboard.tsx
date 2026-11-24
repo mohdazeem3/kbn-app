@@ -19,12 +19,14 @@ import {
   formatShopTime,
   getDashboardData,
 } from '@/services/dashboard';
+import { useCacheInvalidation } from '@/services/cache';
 import { formatDisplayDate } from '@/services/inventory';
 import type { DashboardData, PaymentStatus } from '@/types/database';
 import type { Page } from './pageTypes';
 
 interface DashboardProps {
   onNavigate: (p: Page) => void;
+  isActive?: boolean;
 }
 
 function paymentStatusTone(status: PaymentStatus): 'green' | 'orange' | 'red' | 'neutral' {
@@ -53,7 +55,7 @@ function getShopGreeting(now = new Date()): string {
   return 'Good evening';
 }
 
-export function Dashboard({ onNavigate }: DashboardProps) {
+export function Dashboard({ onNavigate, isActive = true }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,7 +68,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     else setLoading(true);
     setLoadError(null);
     try {
-      const result = await getDashboardData(8);
+      const result = await getDashboardData(8, { forceRefresh: isRefresh });
       setData(result);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load dashboard.');
@@ -79,6 +81,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   useEffect(() => {
     void loadDashboard(false);
   }, [loadDashboard]);
+
+  useCacheInvalidation(['dashboard'], () => void loadDashboard(true), { isActive });
 
   const handleBillCancelled = (billNo: string) => {
     setNotice(`Cancelled bill ${billNo}. Today's sales, stock, and dues have been updated.`);

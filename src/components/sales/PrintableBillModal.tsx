@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, MessageCircle, Printer, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, MessageCircle } from 'lucide-react';
 import { Button, Modal } from '@/components/ui';
 import { formatDisplayDate } from '@/services/inventory';
 import { getBillDetail } from '@/services/sales';
 import { listCustomerBalances } from '@/services/accounts';
 import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
 import { normalizeIndianMobile } from '@/services/whatsapp';
+import { ThermalPrintBar } from '@/components/common/ThermalPrintBar';
+import { useQzThermalPrinter } from '@/services/qzService';
 import type { BillDetail } from '@/types/database';
 
 export interface CustomerBalanceSummary {
@@ -22,6 +24,7 @@ interface PrintableBillModalProps {
   customerPhone?: string | null;
   paymentMode?: string | null;
   autoPrint?: boolean;
+  onAutoPrintDone?: () => void;
   onClose: () => void;
 }
 
@@ -32,6 +35,7 @@ export function PrintableBillModal({
   customerPhone = null,
   paymentMode = null,
   autoPrint = false,
+  onAutoPrintDone,
   onClose,
 }: PrintableBillModalProps) {
   const [detail, setDetail] = useState<BillDetail | null>(initialBillDetail);
@@ -40,8 +44,8 @@ export function PrintableBillModal({
   const [resolvedBalance, setResolvedBalance] = useState<CustomerBalanceSummary | null>(
     balanceSummary
   );
-  const [printed, setPrinted] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const autoPrintedBillIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setResolvedBalance(balanceSummary);
@@ -147,21 +151,39 @@ export function PrintableBillModal({
     };
   }, [detail]);
 
-  // Trigger print
-  const handlePrint = () => {
-    setPrinted(true);
-    window.print();
-  };
+  // QZ Tray thermal printer hook
+  const qz = useQzThermalPrinter({ receiptContainerId: 'printable-thermal-receipt' });
 
-  // Handle autoPrint if requested
+  // Reset auto-print lock when autoPrint is disabled or billId changes
   useEffect(() => {
-    if (autoPrint && detail && !loading) {
-      const timer = setTimeout(() => {
-        handlePrint();
-      }, 350);
-      return () => clearTimeout(timer);
+    if (!autoPrint) {
+      autoPrintedBillIdRef.current = null;
     }
-  }, [autoPrint, detail, loading]);
+  }, [autoPrint, billId]);
+
+  // Handle autoPrint if requested - with single-print ref guard
+  useEffect(() => {
+    if (!autoPrint || !detail || loading) return;
+
+    const currentBillId = detail.bill.bill_id;
+    if (autoPrintedBillIdRef.current === currentBillId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (autoPrintedBillIdRef.current !== currentBillId) {
+        autoPrintedBillIdRef.current = currentBillId;
+        onAutoPrintDone?.();
+        if (qz.confirmedPrinter) {
+          void qz.printDirect();
+        } else {
+          qz.setShowConfig(true);
+        }
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [autoPrint, detail, loading, qz, onAutoPrintDone]);
 
   if (!billId && !initialBillDetail) return null;
 
@@ -195,12 +217,11 @@ export function PrintableBillModal({
           </div>
         ) : bill ? (
           <>
-            {/* Top Action Bar in Modal */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-cream-100 rounded-xl p-3">
-              <span className="text-xs font-bold text-leaf-800">
-                80mm Thermal Receipt Preview
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
+            {/* Top Action & Printer Bar */}
+            <ThermalPrintBar
+              qz={qz}
+              onClose={onClose}
+              whatsappAction={
                 <Button
                   type="button"
                   variant="primary"
@@ -211,26 +232,8 @@ export function PrintableBillModal({
                 >
                   Share on WhatsApp
                 </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  icon={X}
-                  onClick={onClose}
-                >
-                  Close
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  icon={printed ? Check : Printer}
-                  onClick={handlePrint}
-                >
-                  {printed ? 'Print Again' : 'Print Receipt'}
-                </Button>
-              </div>
-            </div>
+              }
+            />
 
             {/* Thermal Receipt Visual Preview Box */}
             <div className="flex justify-center bg-stone-200/60 p-4 sm:p-6 rounded-2xl overflow-x-auto">

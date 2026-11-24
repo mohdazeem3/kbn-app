@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Check, Loader2, Printer, X } from 'lucide-react';
-import { Button, Modal } from '@/components/ui';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { Modal } from '@/components/ui';
 import { formatDisplayDate, getDeliveryDetail } from '@/services/inventory';
+import { ThermalPrintBar } from '@/components/common/ThermalPrintBar';
+import { useQzThermalPrinter } from '@/services/qzService';
 import type { DeliveryDetailWithBatches } from '@/types/database';
 
 export interface DeliveryPrintSnapshot {
@@ -29,6 +31,7 @@ interface PrintableDeliveryModalProps {
   deliveryId: string | null;
   snapshot?: DeliveryPrintSnapshot | null;
   autoPrint?: boolean;
+  onAutoPrintDone?: () => void;
   onClose: () => void;
 }
 
@@ -36,12 +39,14 @@ export function PrintableDeliveryModal({
   deliveryId,
   snapshot = null,
   autoPrint = false,
+  onAutoPrintDone,
   onClose,
 }: PrintableDeliveryModalProps) {
   const [detail, setDetail] = useState<DeliveryDetailWithBatches | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [printed, setPrinted] = useState(false);
+  const autoPrintedDeliveryIdRef = useRef<string | null>(null);
+  const qz = useQzThermalPrinter({ receiptContainerId: 'printable-thermal-receipt' });
 
   useEffect(() => {
     if (!deliveryId) {
@@ -77,19 +82,36 @@ export function PrintableDeliveryModal({
     };
   }, [deliveryId]);
 
-  const handlePrint = () => {
-    setPrinted(true);
-    window.print();
-  };
-
+  // Reset auto-print lock when autoPrint is disabled or deliveryId changes
   useEffect(() => {
-    if (autoPrint && (detail || snapshot) && !loading) {
-      const timer = setTimeout(() => {
-        handlePrint();
-      }, 350);
-      return () => clearTimeout(timer);
+    if (!autoPrint) {
+      autoPrintedDeliveryIdRef.current = null;
     }
-  }, [autoPrint, detail, snapshot, loading]);
+  }, [autoPrint, deliveryId]);
+
+  // Handle autoPrint if requested - with single-print ref guard
+  useEffect(() => {
+    if (!autoPrint || (!detail && !snapshot) || loading) return;
+
+    const currentId = detail?.delivery.delivery_id ?? snapshot?.delivery_no ?? deliveryId;
+    if (!currentId || autoPrintedDeliveryIdRef.current === currentId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (autoPrintedDeliveryIdRef.current !== currentId) {
+        autoPrintedDeliveryIdRef.current = currentId;
+        onAutoPrintDone?.();
+        if (qz.confirmedPrinter) {
+          void qz.printDirect();
+        } else {
+          qz.setShowConfig(true);
+        }
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [autoPrint, detail, snapshot, loading, deliveryId, qz, onAutoPrintDone]);
 
   if (!deliveryId && !snapshot) return null;
 
@@ -143,32 +165,8 @@ export function PrintableDeliveryModal({
           </div>
         ) : (
           <>
-            {/* Action Bar */}
-            <div className="flex items-center justify-between bg-cream-100 rounded-xl p-3">
-              <span className="text-xs font-bold text-leaf-800">
-                80mm Thermal Receipt Preview
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  icon={X}
-                  onClick={onClose}
-                >
-                  Close
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  icon={printed ? Check : Printer}
-                  onClick={handlePrint}
-                >
-                  {printed ? 'Print Again' : 'Print Receipt'}
-                </Button>
-              </div>
-            </div>
+            {/* Top Action & Printer Bar */}
+            <ThermalPrintBar qz={qz} onClose={onClose} />
 
             {/* Thermal Receipt Visual Preview Box */}
             <div className="flex justify-center bg-stone-200/60 p-4 sm:p-6 rounded-2xl overflow-x-auto">

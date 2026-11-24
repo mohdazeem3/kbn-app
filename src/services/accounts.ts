@@ -1,4 +1,11 @@
 import { supabase } from '@/lib/supabase';
+import {
+  appCache,
+  TTL,
+  invalidateOnCustomerPayment,
+  invalidateOnSupplierPayment,
+  invalidateOnStockDelivery,
+} from './cache';
 import type {
   AddCustomerPaymentInput,
   AddSupplierPaymentInput,
@@ -97,18 +104,24 @@ function normalizeSupplierBalance(row: SupplierBalance): SupplierBalance {
 // Customer Accounts & Payments
 // ============================================================================
 
-export async function listCustomerBalances(): Promise<CustomerBalance[]> {
-  const { data, error } = await supabase
-    .from('customer_balances')
-    .select(
-      'customer_id, name, phone, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_bills_count, bills_total, bills_paid, bills_outstanding, outstanding_balance'
-    )
-    .order('active', { ascending: false })
-    .order('outstanding_balance', { ascending: false })
-    .order('name', { ascending: true });
+export async function listCustomerBalances(options?: { forceRefresh?: boolean }): Promise<CustomerBalance[]> {
+  return appCache.fetch(
+    'customer_balances',
+    async () => {
+      const { data, error } = await supabase
+        .from('customer_balances')
+        .select(
+          'customer_id, name, phone, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_bills_count, bills_total, bills_paid, bills_outstanding, outstanding_balance'
+        )
+        .order('active', { ascending: false })
+        .order('outstanding_balance', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (error) throw formatAccountsError(error, 'Could not load customer balances.');
-  return ((data ?? []) as CustomerBalance[]).map(normalizeCustomerBalance);
+      if (error) throw formatAccountsError(error, 'Could not load customer balances.');
+      return ((data ?? []) as CustomerBalance[]).map(normalizeCustomerBalance);
+    },
+    { ttlMs: TTL.BALANCES, tags: ['customer_balances'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 interface RawCustomerPaymentAllocRow {
@@ -157,128 +170,141 @@ interface RawCustomerRefundRow {
   bills: { bill_no: string } | { bill_no: string }[] | null;
 }
 
-export async function getCustomerAccountDetail(customerId: string): Promise<CustomerAccountDetail> {
-  const [balRes, obRes, billsRes, payRes, refundRes] = await Promise.all([
-    supabase
-      .from('customer_balances')
-      .select(
-        'customer_id, name, phone, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_bills_count, bills_total, bills_paid, bills_outstanding, outstanding_balance'
-      )
-      .eq('customer_id', customerId)
-      .single(),
-    supabase
-      .from('customer_opening_balances')
-      .select('id, customer_id, amount, as_of_date, note, status, cancelled_at, cancel_reason, created_at')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('bill_balances')
-      .select(
-        'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
-      )
-      .eq('customer_id', customerId)
-      .order('bill_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('customer_payments')
-      .select(
-        'id, customer_id, customer_name_snapshot, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, customer_payment_allocations(id, customer_payment_id, bill_id, opening_balance_id, amount, status, refund_id, reversed_at, reversal_reason, bills(bill_no, bill_date), customer_opening_balances(as_of_date))'
-      )
-      .eq('customer_id', customerId)
-      .order('payment_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('customer_refunds')
-      .select(
-        'id, bill_id, customer_id, customer_name_snapshot, amount, mode, refund_date, note, created_at, bills(bill_no)'
-      )
-      .eq('customer_id', customerId)
-      .order('refund_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-  ]);
+export async function getCustomerAccountDetail(
+  customerId: string,
+  options?: { forceRefresh?: boolean }
+): Promise<CustomerAccountDetail> {
+  return appCache.fetch(
+    `customer_ledger:${customerId}`,
+    async () => {
+      const [balRes, obRes, billsRes, payRes, refundRes] = await Promise.all([
+        supabase
+          .from('customer_balances')
+          .select(
+            'customer_id, name, phone, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_bills_count, bills_total, bills_paid, bills_outstanding, outstanding_balance'
+          )
+          .eq('customer_id', customerId)
+          .single(),
+        supabase
+          .from('customer_opening_balances')
+          .select('id, customer_id, amount, as_of_date, note, status, cancelled_at, cancel_reason, created_at')
+          .eq('customer_id', customerId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('bill_balances')
+          .select(
+            'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+          )
+          .eq('customer_id', customerId)
+          .order('bill_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('customer_payments')
+          .select(
+            'id, customer_id, customer_name_snapshot, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, customer_payment_allocations(id, customer_payment_id, bill_id, opening_balance_id, amount, status, refund_id, reversed_at, reversal_reason, bills(bill_no, bill_date), customer_opening_balances(as_of_date))'
+          )
+          .eq('customer_id', customerId)
+          .order('payment_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('customer_refunds')
+          .select(
+            'id, bill_id, customer_id, customer_name_snapshot, amount, mode, refund_date, note, created_at, bills(bill_no)'
+          )
+          .eq('customer_id', customerId)
+          .order('refund_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+      ]);
 
-  if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load customer account.');
-  if (obRes.error) throw formatAccountsError(obRes.error, 'Could not load opening balances.');
-  if (billsRes.error) throw formatAccountsError(billsRes.error, 'Could not load customer bills.');
-  if (payRes.error) throw formatAccountsError(payRes.error, 'Could not load customer payments.');
-  if (refundRes.error) throw formatAccountsError(refundRes.error, 'Could not load customer refunds.');
+      if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load customer account.');
+      if (obRes.error) throw formatAccountsError(obRes.error, 'Could not load opening balances.');
+      if (billsRes.error) throw formatAccountsError(billsRes.error, 'Could not load customer bills.');
+      if (payRes.error) throw formatAccountsError(payRes.error, 'Could not load customer payments.');
+      if (refundRes.error) throw formatAccountsError(refundRes.error, 'Could not load customer refunds.');
 
-  const openingBalances: CustomerOpeningBalance[] = (
-    (obRes.data ?? []) as CustomerOpeningBalance[]
-  ).map((o) => ({ ...o, amount: Number(o.amount) }));
+      const openingBalances: CustomerOpeningBalance[] = (
+        (obRes.data ?? []) as CustomerOpeningBalance[]
+      ).map((o) => ({ ...o, amount: Number(o.amount) }));
 
-  const bills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
-    ...b,
-    subtotal: Number(b.subtotal),
-    amount_paid: Number(b.amount_paid),
-    outstanding_amount: Number(b.outstanding_amount),
-  }));
+      const bills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
+        ...b,
+        subtotal: Number(b.subtotal),
+        amount_paid: Number(b.amount_paid),
+        outstanding_amount: Number(b.outstanding_amount),
+      }));
 
-  const payments: CustomerPaymentRecord[] = ((payRes.data ?? []) as RawCustomerPaymentRow[]).map(
-    (p) => {
-      const allocations: CustomerPaymentAllocationItem[] = (
-        p.customer_payment_allocations ?? []
-      ).map((a) => {
-        const bill = unwrapSingle(a.bills);
-        const ob = unwrapSingle(a.customer_opening_balances);
-        return {
-          id: a.id,
-          customer_payment_id: a.customer_payment_id,
-          bill_id: a.bill_id,
-          opening_balance_id: a.opening_balance_id,
-          target_label: a.bill_id ? (bill?.bill_no ?? 'Bill') : 'Opening Balance',
-          target_date: a.bill_id ? (bill?.bill_date ?? null) : (ob?.as_of_date ?? null),
-          amount: Number(a.amount),
-          status: a.status,
-          refund_id: a.refund_id,
-          reversed_at: a.reversed_at,
-          reversal_reason: a.reversal_reason,
-        };
-      });
+      const payments: CustomerPaymentRecord[] = ((payRes.data ?? []) as RawCustomerPaymentRow[]).map(
+        (p) => {
+          const allocations: CustomerPaymentAllocationItem[] = (
+            p.customer_payment_allocations ?? []
+          ).map((a) => {
+            const bill = unwrapSingle(a.bills);
+            const ob = unwrapSingle(a.customer_opening_balances);
+            return {
+              id: a.id,
+              customer_payment_id: a.customer_payment_id,
+              bill_id: a.bill_id,
+              opening_balance_id: a.opening_balance_id,
+              target_label: a.bill_id ? (bill?.bill_no ?? 'Bill') : 'Opening Balance',
+              target_date: a.bill_id ? (bill?.bill_date ?? null) : (ob?.as_of_date ?? null),
+              amount: Number(a.amount),
+              status: a.status,
+              refund_id: a.refund_id,
+              reversed_at: a.reversed_at,
+              reversal_reason: a.reversal_reason,
+            };
+          });
+
+          return {
+            id: p.id,
+            customer_id: p.customer_id,
+            customer_name_snapshot: p.customer_name_snapshot,
+            payment_origin: p.payment_origin,
+            amount: Number(p.amount),
+            mode: p.mode,
+            payment_date: p.payment_date,
+            note: p.note,
+            status: p.status,
+            cancelled_at: p.cancelled_at,
+            cancel_reason: p.cancel_reason,
+            created_at: p.created_at,
+            allocations,
+          };
+        }
+      );
+
+      const refunds: CustomerRefundWithBill[] = ((refundRes.data ?? []) as RawCustomerRefundRow[]).map(
+        (r) => {
+          const bill = unwrapSingle(r.bills);
+          return {
+            id: r.id,
+            bill_id: r.bill_id,
+            bill_no: bill?.bill_no ?? 'Bill',
+            customer_id: r.customer_id,
+            customer_name_snapshot: r.customer_name_snapshot,
+            amount: Number(r.amount),
+            mode: r.mode,
+            refund_date: r.refund_date,
+            note: r.note,
+            created_at: r.created_at,
+          };
+        }
+      );
 
       return {
-        id: p.id,
-        customer_id: p.customer_id,
-        customer_name_snapshot: p.customer_name_snapshot,
-        payment_origin: p.payment_origin,
-        amount: Number(p.amount),
-        mode: p.mode,
-        payment_date: p.payment_date,
-        note: p.note,
-        status: p.status,
-        cancelled_at: p.cancelled_at,
-        cancel_reason: p.cancel_reason,
-        created_at: p.created_at,
-        allocations,
+        balance: normalizeCustomerBalance(balRes.data as CustomerBalance),
+        openingBalances,
+        bills,
+        payments,
+        refunds,
       };
+    },
+    {
+      ttlMs: TTL.LEDGER,
+      tags: ['customer_ledger', `customer_ledger:${customerId}`],
+      forceRefresh: options?.forceRefresh,
     }
   );
-
-  const refunds: CustomerRefundWithBill[] = ((refundRes.data ?? []) as RawCustomerRefundRow[]).map(
-    (r) => {
-      const bill = unwrapSingle(r.bills);
-      return {
-        id: r.id,
-        bill_id: r.bill_id,
-        bill_no: bill?.bill_no ?? 'Bill',
-        customer_id: r.customer_id,
-        customer_name_snapshot: r.customer_name_snapshot,
-        amount: Number(r.amount),
-        mode: r.mode,
-        refund_date: r.refund_date,
-        note: r.note,
-        created_at: r.created_at,
-      };
-    }
-  );
-
-  return {
-    balance: normalizeCustomerBalance(balRes.data as CustomerBalance),
-    openingBalances,
-    bills,
-    payments,
-    refunds,
-  };
 }
 
 export async function addCustomerPayment(input: AddCustomerPaymentInput): Promise<string> {
@@ -318,6 +344,7 @@ export async function addCustomerPayment(input: AddCustomerPaymentInput): Promis
   });
 
   if (error) throw formatAccountsError(error, 'Could not record customer payment.');
+  invalidateOnCustomerPayment(input.customer_id);
   return data as string;
 }
 
@@ -327,6 +354,7 @@ export async function cancelCustomerPayment(paymentId: string, reason: string | 
     p_reason: reason?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not cancel customer payment.');
+  invalidateOnCustomerPayment();
 }
 
 export async function setCustomerOpeningBalance(
@@ -346,6 +374,7 @@ export async function setCustomerOpeningBalance(
     p_note: note?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not set customer opening balance.');
+  invalidateOnCustomerPayment(customerId);
   return data as string;
 }
 
@@ -358,24 +387,31 @@ export async function cancelCustomerOpeningBalance(
     p_reason: reason?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not cancel customer opening balance.');
+  invalidateOnCustomerPayment();
 }
 
 // ============================================================================
 // Supplier Accounts, Deliveries, Payments, Reallocations & Opening Balances
 // ============================================================================
 
-export async function listSupplierBalances(): Promise<SupplierBalance[]> {
-  const { data, error } = await supabase
-    .from('supplier_balances')
-    .select(
-      'supplier_id, name, phone, fruit_id, fruit_name, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_deliveries_count, total_boxes_received, deliveries_total, deliveries_paid, deliveries_outstanding, outstanding_balance, fruit_ids, fruit_count'
-    )
-    .order('active', { ascending: false })
-    .order('outstanding_balance', { ascending: false })
-    .order('name', { ascending: true });
+export async function listSupplierBalances(options?: { forceRefresh?: boolean }): Promise<SupplierBalance[]> {
+  return appCache.fetch(
+    'supplier_balances',
+    async () => {
+      const { data, error } = await supabase
+        .from('supplier_balances')
+        .select(
+          'supplier_id, name, phone, fruit_id, fruit_name, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_deliveries_count, total_boxes_received, deliveries_total, deliveries_paid, deliveries_outstanding, outstanding_balance, fruit_ids, fruit_count'
+        )
+        .order('active', { ascending: false })
+        .order('outstanding_balance', { ascending: false })
+        .order('name', { ascending: true });
 
-  if (error) throw formatAccountsError(error, 'Could not load supplier balances.');
-  return ((data ?? []) as SupplierBalance[]).map(normalizeSupplierBalance);
+      if (error) throw formatAccountsError(error, 'Could not load supplier balances.');
+      return ((data ?? []) as SupplierBalance[]).map(normalizeSupplierBalance);
+    },
+    { ttlMs: TTL.BALANCES, tags: ['supplier_balances'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 interface RawSupplierPaymentAllocRow {
@@ -426,127 +462,141 @@ interface RawSupplierRefundRow {
   stock_deliveries: { delivery_no: string } | { delivery_no: string }[] | null;
 }
 
-export async function getSupplierAccountDetail(supplierId: string): Promise<SupplierAccountDetail> {
-  const [balRes, obRes, delRes, payRes, refundRes] = await Promise.all([
-    supabase
-      .from('supplier_balances')
-      .select(
-        'supplier_id, name, phone, fruit_id, fruit_name, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_deliveries_count, total_boxes_received, deliveries_total, deliveries_paid, deliveries_outstanding, outstanding_balance, fruit_ids, fruit_count'
-      )
-      .eq('supplier_id', supplierId)
-      .single(),
-    supabase
-      .from('supplier_opening_balances')
-      .select('id, supplier_id, amount, as_of_date, note, status, cancelled_at, cancel_reason, created_at')
-      .eq('supplier_id', supplierId)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('delivery_balances')
-      .select(
-        'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at, fruit_ids, fruit_count'
-      )
-      .eq('supplier_id', supplierId)
-      .order('received_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('supplier_payments')
-      .select(
-        'id, supplier_id, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, supplier_payment_allocations(id, supplier_payment_id, delivery_id, opening_balance_id, amount, status, refund_id, reallocated_from_id, reversed_at, reversal_reason, stock_deliveries(delivery_no, received_date), supplier_opening_balances(as_of_date))'
-      )
-      .eq('supplier_id', supplierId)
-      .order('payment_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('supplier_refunds')
-      .select('id, delivery_id, supplier_id, amount, mode, refund_date, note, created_at, stock_deliveries(delivery_no)')
-      .eq('supplier_id', supplierId)
-      .order('refund_date', { ascending: false })
-      .order('created_at', { ascending: false }),
-  ]);
+export async function getSupplierAccountDetail(
+  supplierId: string,
+  options?: { forceRefresh?: boolean }
+): Promise<SupplierAccountDetail> {
+  return appCache.fetch(
+    `supplier_ledger:${supplierId}`,
+    async () => {
+      const [balRes, obRes, delRes, payRes, refundRes] = await Promise.all([
+        supabase
+          .from('supplier_balances')
+          .select(
+            'supplier_id, name, phone, fruit_id, fruit_name, active, opening_balance_id, opening_balance, opening_balance_paid, opening_balance_outstanding, active_deliveries_count, total_boxes_received, deliveries_total, deliveries_paid, deliveries_outstanding, outstanding_balance, fruit_ids, fruit_count'
+          )
+          .eq('supplier_id', supplierId)
+          .single(),
+        supabase
+          .from('supplier_opening_balances')
+          .select('id, supplier_id, amount, as_of_date, note, status, cancelled_at, cancel_reason, created_at')
+          .eq('supplier_id', supplierId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('delivery_balances')
+          .select(
+            'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at, fruit_ids, fruit_count'
+          )
+          .eq('supplier_id', supplierId)
+          .order('received_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('supplier_payments')
+          .select(
+            'id, supplier_id, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, supplier_payment_allocations(id, supplier_payment_id, delivery_id, opening_balance_id, amount, status, refund_id, reallocated_from_id, reversed_at, reversal_reason, stock_deliveries(delivery_no, received_date), supplier_opening_balances(as_of_date))'
+          )
+          .eq('supplier_id', supplierId)
+          .order('payment_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('supplier_refunds')
+          .select('id, delivery_id, supplier_id, amount, mode, refund_date, note, created_at, stock_deliveries(delivery_no)')
+          .eq('supplier_id', supplierId)
+          .order('refund_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+      ]);
 
-  if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load supplier account.');
-  if (obRes.error) throw formatAccountsError(obRes.error, 'Could not load supplier opening balances.');
-  if (delRes.error) throw formatAccountsError(delRes.error, 'Could not load supplier deliveries.');
-  if (payRes.error) throw formatAccountsError(payRes.error, 'Could not load supplier payments.');
-  if (refundRes.error) throw formatAccountsError(refundRes.error, 'Could not load supplier refunds.');
+      if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load supplier account.');
+      if (obRes.error) throw formatAccountsError(obRes.error, 'Could not load supplier opening balances.');
+      if (delRes.error) throw formatAccountsError(delRes.error, 'Could not load supplier deliveries.');
+      if (payRes.error) throw formatAccountsError(payRes.error, 'Could not load supplier payments.');
+      if (refundRes.error) throw formatAccountsError(refundRes.error, 'Could not load supplier refunds.');
 
-  const openingBalances: SupplierOpeningBalance[] = (
-    (obRes.data ?? []) as SupplierOpeningBalance[]
-  ).map((o) => ({ ...o, amount: Number(o.amount) }));
+      const openingBalances: SupplierOpeningBalance[] = (
+        (obRes.data ?? []) as SupplierOpeningBalance[]
+      ).map((o) => ({ ...o, amount: Number(o.amount) }));
 
-  const deliveries: DeliveryBalance[] = ((delRes.data ?? []) as DeliveryBalance[]).map((d) => ({
-    ...d,
-    boxes_received: Number(d.boxes_received),
-    boxes_remaining: Number(d.boxes_remaining),
-    purchase_amount: Number(d.purchase_amount),
-    amount_paid: Number(d.amount_paid),
-    outstanding_amount: Number(d.outstanding_amount),
-  }));
+      const deliveries: DeliveryBalance[] = ((delRes.data ?? []) as DeliveryBalance[]).map((d) => ({
+        ...d,
+        boxes_received: Number(d.boxes_received),
+        boxes_remaining: Number(d.boxes_remaining),
+        boxes_purchase_amount: Number(d.purchase_amount),
+        purchase_amount: Number(d.purchase_amount),
+        amount_paid: Number(d.amount_paid),
+        outstanding_amount: Number(d.outstanding_amount),
+      }));
 
-  const payments: SupplierPaymentRecord[] = ((payRes.data ?? []) as RawSupplierPaymentRow[]).map(
-    (p) => {
-      const allocations: SupplierPaymentAllocationItem[] = (
-        p.supplier_payment_allocations ?? []
-      ).map((a) => {
-        const del = unwrapSingle(a.stock_deliveries);
-        const ob = unwrapSingle(a.supplier_opening_balances);
-        return {
-          id: a.id,
-          supplier_payment_id: a.supplier_payment_id,
-          delivery_id: a.delivery_id,
-          opening_balance_id: a.opening_balance_id,
-          target_label: a.delivery_id ? (del?.delivery_no ?? 'Delivery') : 'Opening Balance',
-          target_date: a.delivery_id ? (del?.received_date ?? null) : (ob?.as_of_date ?? null),
-          amount: Number(a.amount),
-          status: a.status,
-          refund_id: a.refund_id,
-          reallocated_from_id: a.reallocated_from_id,
-          reversed_at: a.reversed_at,
-          reversal_reason: a.reversal_reason,
-        };
-      });
+      const payments: SupplierPaymentRecord[] = ((payRes.data ?? []) as RawSupplierPaymentRow[]).map(
+        (p) => {
+          const allocations: SupplierPaymentAllocationItem[] = (
+            p.supplier_payment_allocations ?? []
+          ).map((a) => {
+            const del = unwrapSingle(a.stock_deliveries);
+            const ob = unwrapSingle(a.supplier_opening_balances);
+            return {
+              id: a.id,
+              supplier_payment_id: a.supplier_payment_id,
+              delivery_id: a.delivery_id,
+              opening_balance_id: a.opening_balance_id,
+              target_label: a.delivery_id ? (del?.delivery_no ?? 'Delivery') : 'Opening Balance',
+              target_date: a.delivery_id ? (del?.received_date ?? null) : (ob?.as_of_date ?? null),
+              amount: Number(a.amount),
+              status: a.status,
+              refund_id: a.refund_id,
+              reallocated_from_id: a.reallocated_from_id,
+              reversed_at: a.reversed_at,
+              reversal_reason: a.reversal_reason,
+            };
+          });
+
+          return {
+            id: p.id,
+            supplier_id: p.supplier_id,
+            payment_origin: p.payment_origin,
+            amount: Number(p.amount),
+            mode: p.mode,
+            payment_date: p.payment_date,
+            note: p.note,
+            status: p.status,
+            cancelled_at: p.cancelled_at,
+            cancel_reason: p.cancel_reason,
+            created_at: p.created_at,
+            allocations,
+          };
+        }
+      );
+
+      const refunds: SupplierRefundRecord[] = ((refundRes.data ?? []) as RawSupplierRefundRow[]).map(
+        (r) => {
+          const del = unwrapSingle(r.stock_deliveries);
+          return {
+            id: r.id,
+            delivery_id: r.delivery_id,
+            delivery_no: del?.delivery_no ?? 'Delivery',
+            supplier_id: r.supplier_id,
+            amount: Number(r.amount),
+            mode: r.mode,
+            refund_date: r.refund_date,
+            note: r.note,
+            created_at: r.created_at,
+          };
+        }
+      );
 
       return {
-        id: p.id,
-        supplier_id: p.supplier_id,
-        payment_origin: p.payment_origin,
-        amount: Number(p.amount),
-        mode: p.mode,
-        payment_date: p.payment_date,
-        note: p.note,
-        status: p.status,
-        cancelled_at: p.cancelled_at,
-        cancel_reason: p.cancel_reason,
-        created_at: p.created_at,
-        allocations,
+        balance: normalizeSupplierBalance(balRes.data as SupplierBalance),
+        openingBalances,
+        deliveries,
+        payments,
+        refunds,
       };
+    },
+    {
+      ttlMs: TTL.LEDGER,
+      tags: ['supplier_ledger', `supplier_ledger:${supplierId}`],
+      forceRefresh: options?.forceRefresh,
     }
   );
-
-  const refunds: SupplierRefundRecord[] = ((refundRes.data ?? []) as RawSupplierRefundRow[]).map(
-    (r) => {
-      const del = unwrapSingle(r.stock_deliveries);
-      return {
-        id: r.id,
-        delivery_id: r.delivery_id,
-        delivery_no: del?.delivery_no ?? 'Delivery',
-        supplier_id: r.supplier_id,
-        amount: Number(r.amount),
-        mode: r.mode,
-        refund_date: r.refund_date,
-        note: r.note,
-        created_at: r.created_at,
-      };
-    }
-  );
-
-  return {
-    balance: normalizeSupplierBalance(balRes.data as SupplierBalance),
-    openingBalances,
-    deliveries,
-    payments,
-    refunds,
-  };
 }
 
 export async function addSupplierPayment(input: AddSupplierPaymentInput): Promise<string> {
@@ -588,6 +638,7 @@ export async function addSupplierPayment(input: AddSupplierPaymentInput): Promis
   });
 
   if (error) throw formatAccountsError(error, 'Could not record supplier payment.');
+  invalidateOnSupplierPayment(input.supplier_id);
   return data as string;
 }
 
@@ -615,6 +666,7 @@ export async function reallocateSupplierPaymentAllocation(
   });
 
   if (error) throw formatAccountsError(error, 'Could not reallocate supplier payment.');
+  invalidateOnSupplierPayment();
 }
 
 export async function cancelSupplierPayment(
@@ -626,6 +678,7 @@ export async function cancelSupplierPayment(
     p_reason: reason?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not cancel supplier payment.');
+  invalidateOnSupplierPayment();
 }
 
 export async function cancelStockDelivery(input: CancelDeliveryInput): Promise<void> {
@@ -637,6 +690,7 @@ export async function cancelStockDelivery(input: CancelDeliveryInput): Promise<v
     p_refund_note: input.refund_note?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not cancel stock delivery.');
+  invalidateOnStockDelivery();
 }
 
 export async function setSupplierOpeningBalance(
@@ -656,6 +710,7 @@ export async function setSupplierOpeningBalance(
     p_note: note?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not set supplier opening balance.');
+  invalidateOnSupplierPayment(supplierId);
   return data as string;
 }
 
@@ -668,4 +723,5 @@ export async function cancelSupplierOpeningBalance(
     p_reason: reason?.trim() || null,
   });
   if (error) throw formatAccountsError(error, 'Could not cancel supplier opening balance.');
+  invalidateOnSupplierPayment();
 }

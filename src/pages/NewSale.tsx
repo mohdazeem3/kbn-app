@@ -32,6 +32,7 @@ import {
 } from '@/services/inventory';
 import { createBill, getBillDetail } from '@/services/sales';
 import { listCustomerBalances } from '@/services/accounts';
+import { useCacheInvalidation } from '@/services/cache';
 import {
   PrintableBillModal,
   type CustomerBalanceSummary,
@@ -123,9 +124,10 @@ function parseNonNegativeMoney(raw: string): number {
 
 interface NewSaleProps {
   onNavigate?: (p: Page) => void;
+  isActive?: boolean;
 }
 
-export function NewSale({ onNavigate }: NewSaleProps) {
+export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerBalances, setCustomerBalances] = useState<CustomerBalance[]>([]);
   const [availableBatches, setAvailableBatches] = useState<StockBatchView[]>([]);
@@ -157,8 +159,8 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   const [printPaymentMode, setPrintPaymentMode] = useState<string | null>(null);
   const [autoPrintTrigger, setAutoPrintTrigger] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
       const [custList, batchList, balList] = await Promise.all([
@@ -181,6 +183,8 @@ export function NewSale({ onNavigate }: NewSaleProps) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useCacheInvalidation(['stock', 'customers', 'customer_balances'], () => void loadData(true), { isActive });
 
   const customerOptions: SearchOption[] = useMemo(
     () =>
@@ -1480,6 +1484,7 @@ export function NewSale({ onNavigate }: NewSaleProps) {
           customerPhone={printCustomerPhone}
           paymentMode={printPaymentMode}
           autoPrint={autoPrintTrigger}
+          onAutoPrintDone={() => setAutoPrintTrigger(false)}
           onClose={() => {
             setPrintBillId(null);
             setPrintBalanceSummary(null);

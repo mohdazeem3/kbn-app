@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { appCache, TTL, invalidateOnStockDelivery } from './cache';
 import type {
   AvailableStockBatch,
   DeliveryBalance,
@@ -179,6 +180,7 @@ export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Pr
     throw formatInventoryError(error, 'Could not save stock delivery. Please try again.');
   }
 
+  invalidateOnStockDelivery(input.supplier_id);
   return data as string;
 }
 
@@ -186,52 +188,58 @@ export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Pr
  * Loads active delivery stock batches enriched with delivery-level payment status
  * by joining available_stock_batches and delivery_balances views.
  */
-export async function listStockBatches(): Promise<StockBatchView[]> {
-  const [batchesRes, deliveriesRes] = await Promise.all([
-    supabase
-      .from('available_stock_batches')
-      .select(
-        'batch_id, delivery_id, delivery_no, received_date, line_no, fruit_id, fruit_name, variety_id, variety_name, default_sell_rate, supplier_id, supplier_name, supplier_active, boxes_received, boxes_remaining, boxes_sold, purchase_rate, purchase_amount, remaining_stock_value, delivery_note, created_at'
-      )
-      .order('received_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .order('line_no', { ascending: true }),
-    supabase
-      .from('delivery_balances')
-      .select(
-        'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
-      )
-      .eq('status', 'active'),
-  ]);
+export async function listStockBatches(options?: { forceRefresh?: boolean }): Promise<StockBatchView[]> {
+  return appCache.fetch(
+    'stock_batches',
+    async () => {
+      const [batchesRes, deliveriesRes] = await Promise.all([
+        supabase
+          .from('available_stock_batches')
+          .select(
+            'batch_id, delivery_id, delivery_no, received_date, line_no, fruit_id, fruit_name, variety_id, variety_name, default_sell_rate, supplier_id, supplier_name, supplier_active, boxes_received, boxes_remaining, boxes_sold, purchase_rate, purchase_amount, remaining_stock_value, delivery_note, created_at'
+          )
+          .order('received_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .order('line_no', { ascending: true }),
+        supabase
+          .from('delivery_balances')
+          .select(
+            'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+          )
+          .eq('status', 'active'),
+      ]);
 
-  if (batchesRes.error) {
-    throw formatInventoryError(batchesRes.error, 'Could not load stock batches.');
-  }
-  if (deliveriesRes.error) {
-    throw formatInventoryError(deliveriesRes.error, 'Could not load delivery payment statuses.');
-  }
+      if (batchesRes.error) {
+        throw formatInventoryError(batchesRes.error, 'Could not load stock batches.');
+      }
+      if (deliveriesRes.error) {
+        throw formatInventoryError(deliveriesRes.error, 'Could not load delivery payment statuses.');
+      }
 
-  const deliveryMap = new Map<string, DeliveryBalance>();
-  for (const d of (deliveriesRes.data ?? []) as DeliveryBalance[]) {
-    deliveryMap.set(d.delivery_id, d);
-  }
+      const deliveryMap = new Map<string, DeliveryBalance>();
+      for (const d of (deliveriesRes.data ?? []) as DeliveryBalance[]) {
+        deliveryMap.set(d.delivery_id, d);
+      }
 
-  return ((batchesRes.data ?? []) as AvailableStockBatch[]).map((batch) => {
-    const del = deliveryMap.get(batch.delivery_id);
-    return {
-      ...batch,
-      boxes_received: Number(batch.boxes_received),
-      boxes_remaining: Number(batch.boxes_remaining),
-      boxes_sold: Number(batch.boxes_sold),
-      purchase_rate: Number(batch.purchase_rate),
-      purchase_amount: Number(batch.purchase_amount),
-      remaining_stock_value: Number(batch.remaining_stock_value),
-      delivery_payment_status: del?.payment_status ?? 'unpaid',
-      delivery_purchase_amount: Number(del?.purchase_amount ?? batch.purchase_amount),
-      delivery_amount_paid: Number(del?.amount_paid ?? 0),
-      delivery_outstanding_amount: Number(del?.outstanding_amount ?? batch.purchase_amount),
-    };
-  });
+      return ((batchesRes.data ?? []) as AvailableStockBatch[]).map((batch) => {
+        const del = deliveryMap.get(batch.delivery_id);
+        return {
+          ...batch,
+          boxes_received: Number(batch.boxes_received),
+          boxes_remaining: Number(batch.boxes_remaining),
+          boxes_sold: Number(batch.boxes_sold),
+          purchase_rate: Number(batch.purchase_rate),
+          purchase_amount: Number(batch.purchase_amount),
+          remaining_stock_value: Number(batch.remaining_stock_value),
+          delivery_payment_status: del?.payment_status ?? 'unpaid',
+          delivery_purchase_amount: Number(del?.purchase_amount ?? batch.purchase_amount),
+          delivery_amount_paid: Number(del?.amount_paid ?? 0),
+          delivery_outstanding_amount: Number(del?.outstanding_amount ?? batch.purchase_amount),
+        };
+      });
+    },
+    { ttlMs: TTL.STOCK, tags: ['stock'], forceRefresh: options?.forceRefresh }
+  );
 }
 
 /**
@@ -242,7 +250,9 @@ export async function getDeliveryDetail(deliveryId: string): Promise<DeliveryDet
   const [deliveryRes, batchesRes] = await Promise.all([
     supabase
       .from('delivery_balances')
-      .select('*')
+      .select(
+        'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at, fruit_ids, fruit_count'
+      )
       .eq('delivery_id', deliveryId)
       .single(),
     supabase
@@ -364,5 +374,6 @@ export async function editStockDelivery(
     throw formatInventoryError(error, 'Could not update stock delivery. Please check errors and try again.');
   }
 
+  invalidateOnStockDelivery();
   return data as EditStockDeliveryResult;
 }

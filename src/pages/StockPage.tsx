@@ -13,6 +13,7 @@ import {
 } from '@/components/ui';
 import { EditDeliveryModal } from '@/components/inventory/EditDeliveryModal';
 import { formatDisplayDate, listStockBatches } from '@/services/inventory';
+import { useCacheInvalidation } from '@/services/cache';
 import type { PaymentStatus, StockBatchView } from '@/types/database';
 import type { Page } from './pageTypes';
 
@@ -33,7 +34,13 @@ function paymentLabel(status: PaymentStatus): string {
   return 'Cancelled';
 }
 
-export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
+export function StockPage({
+  onNavigate,
+  isActive = true,
+}: {
+  onNavigate: (p: Page) => void;
+  isActive?: boolean;
+}) {
   const [batches, setBatches] = useState<StockBatchView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +53,11 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatusFilter>('all');
   const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
 
-  const loadBatches = useCallback(async () => {
-    setLoading(true);
+  const loadBatches = useCallback(async (isBackground = false, forceRefresh = false) => {
+    if (!isBackground) setLoading(true);
     setError(null);
     try {
-      const data = await listStockBatches();
+      const data = await listStockBatches({ forceRefresh });
       setBatches(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load stock batches.');
@@ -62,6 +69,8 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   useEffect(() => {
     void loadBatches();
   }, [loadBatches]);
+
+  useCacheInvalidation(['stock'], () => void loadBatches(true), { isActive });
 
   const fruitChoices = useMemo(() => {
     const map = new Map<string, string>();
@@ -124,7 +133,7 @@ export function StockPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         title="Stock"
         action={
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" size="lg" icon={RotateCw} onClick={() => void loadBatches()}>
+            <Button variant="secondary" size="lg" icon={RotateCw} onClick={() => void loadBatches(false, true)}>
               Refresh
             </Button>
             <Button size="lg" icon={PackageOpen} onClick={() => onNavigate('receive')}>

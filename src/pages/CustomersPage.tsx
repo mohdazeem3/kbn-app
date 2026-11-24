@@ -20,6 +20,7 @@ import {
   setCustomerActive,
   updateCustomer,
 } from '@/services/masterData';
+import { useCacheInvalidation } from '@/services/cache';
 import type { Customer, CustomerBalance, CustomerInput } from '@/types/database';
 
 function toCustomerRecord(row: CustomerBalance): Customer {
@@ -33,7 +34,7 @@ function toCustomerRecord(row: CustomerBalance): Customer {
   };
 }
 
-export function CustomersPage() {
+export function CustomersPage({ isActive = true }: { isActive?: boolean } = {}) {
   const [customers, setCustomers] = useState<CustomerBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -49,8 +50,8 @@ export function CustomersPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
       const data = await listCustomerBalances();
@@ -65,6 +66,8 @@ export function CustomersPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useCacheInvalidation(['customer_balances', 'customers'], () => void loadData(true), { isActive });
 
   const counts = useMemo(() => {
     let active = 0;
@@ -174,6 +177,7 @@ export function CustomersPage() {
         customerId={selectedCustomerId}
         onBack={() => setSelectedCustomerId(null)}
         onDataChanged={() => void loadData()}
+        isActive={isActive}
       />
     );
   }

@@ -15,7 +15,11 @@ export function Modal({ open, title, subtitle, maxWidth = 'max-w-lg', onClose, c
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -30,8 +34,19 @@ export function Modal({ open, title, subtitle, maxWidth = 'max-w-lg', onClose, c
       aria-modal="true"
       aria-labelledby="modal-title"
     >
-      <div className="absolute inset-0 bg-leaf-950/40" onClick={onClose} aria-hidden />
-      <div className={`relative z-10 flex max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-lifted`}>
+      <div
+        className="absolute inset-0 bg-leaf-950/40"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }}
+        aria-hidden
+      />
+      <div
+        className={`relative z-10 flex max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-lifted`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-leaf-100 px-6 py-5">
           <div>
             <h2 id="modal-title" className="font-display text-2xl font-semibold text-leaf-950">
@@ -41,7 +56,11 @@ export function Modal({ open, title, subtitle, maxWidth = 'max-w-lg', onClose, c
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             className="rounded-xl p-2 text-leaf-700 transition-colors hover:bg-leaf-100 hover:text-leaf-950"
             aria-label="Close dialog"
           >

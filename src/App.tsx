@@ -34,17 +34,60 @@ function AuthGate() {
 
 function AppPages() {
   const [page, setPage] = useState<Page>('dashboard');
+  const [visited, setVisited] = useState<Set<Page>>(() => new Set(['dashboard']));
+
+  const handleNavigate = (p: Page) => {
+    setVisited((prev) => {
+      if (prev.has(p)) return prev;
+      const next = new Set(prev);
+      next.add(p);
+      return next;
+    });
+    setPage(p);
+  };
 
   return (
-    <AppShell page={page} onNavigate={setPage}>
-      {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
-      {page === 'receive' && <ReceiveStock onNavigate={setPage} />}
-      {page === 'sale' && <NewSale onNavigate={setPage} />}
-      {page === 'bills' && <BillsPage onNavigate={setPage} />}
-      {page === 'stock' && <StockPage onNavigate={setPage} />}
-      {page === 'fruits' && <FruitsPage />}
-      {page === 'customers' && <CustomersPage />}
-      {page === 'suppliers' && <SuppliersPage onNavigate={setPage} />}
+    <AppShell page={page} onNavigate={handleNavigate}>
+      {visited.has('dashboard') && (
+        <div className={page === 'dashboard' ? undefined : 'hidden'} aria-hidden={page !== 'dashboard'}>
+          <Dashboard onNavigate={handleNavigate} isActive={page === 'dashboard'} />
+        </div>
+      )}
+      {visited.has('receive') && (
+        <div className={page === 'receive' ? undefined : 'hidden'} aria-hidden={page !== 'receive'}>
+          <ReceiveStock onNavigate={handleNavigate} isActive={page === 'receive'} />
+        </div>
+      )}
+      {visited.has('sale') && (
+        <div className={page === 'sale' ? undefined : 'hidden'} aria-hidden={page !== 'sale'}>
+          <NewSale onNavigate={handleNavigate} isActive={page === 'sale'} />
+        </div>
+      )}
+      {visited.has('bills') && (
+        <div className={page === 'bills' ? undefined : 'hidden'} aria-hidden={page !== 'bills'}>
+          <BillsPage onNavigate={handleNavigate} isActive={page === 'bills'} />
+        </div>
+      )}
+      {visited.has('stock') && (
+        <div className={page === 'stock' ? undefined : 'hidden'} aria-hidden={page !== 'stock'}>
+          <StockPage onNavigate={handleNavigate} isActive={page === 'stock'} />
+        </div>
+      )}
+      {visited.has('fruits') && (
+        <div className={page === 'fruits' ? undefined : 'hidden'} aria-hidden={page !== 'fruits'}>
+          <FruitsPage isActive={page === 'fruits'} />
+        </div>
+      )}
+      {visited.has('customers') && (
+        <div className={page === 'customers' ? undefined : 'hidden'} aria-hidden={page !== 'customers'}>
+          <CustomersPage isActive={page === 'customers'} />
+        </div>
+      )}
+      {visited.has('suppliers') && (
+        <div className={page === 'suppliers' ? undefined : 'hidden'} aria-hidden={page !== 'suppliers'}>
+          <SuppliersPage onNavigate={handleNavigate} isActive={page === 'suppliers'} />
+        </div>
+      )}
     </AppShell>
   );
 }

@@ -31,6 +31,7 @@ import {
   getCustomerAccountDetail,
   setCustomerOpeningBalance,
 } from '@/services/accounts';
+import { useCacheInvalidation } from '@/services/cache';
 import { formatDisplayDate } from '@/services/inventory';
 import type {
   CustomerAccountDetail,
@@ -42,6 +43,7 @@ interface CustomerAccountViewProps {
   customerId: string;
   onBack: () => void;
   onDataChanged?: () => void;
+  isActive?: boolean;
 }
 
 type AccountTab = 'ledger' | 'bills' | 'payments' | 'opening';
@@ -79,6 +81,7 @@ export function CustomerAccountView({
   customerId,
   onBack,
   onDataChanged,
+  isActive = true,
 }: CustomerAccountViewProps) {
   const [detail, setDetail] = useState<CustomerAccountDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,11 +104,11 @@ export function CustomerAccountView({
   const [cancelOpeningReason, setCancelOpeningReason] = useState('');
   const [submittingCancelOpening, setSubmittingCancelOpening] = useState(false);
 
-  const loadAccount = useCallback(async () => {
-    setLoading(true);
+  const loadAccount = useCallback(async (isBackground = false, forceRefresh = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError(null);
     try {
-      const data = await getCustomerAccountDetail(customerId);
+      const data = await getCustomerAccountDetail(customerId, { forceRefresh });
       setDetail(data);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load customer account.');
@@ -117,6 +120,8 @@ export function CustomerAccountView({
   useEffect(() => {
     void loadAccount();
   }, [loadAccount]);
+
+  useCacheInvalidation(['customer_ledger', `customer_ledger:${customerId}`], () => void loadAccount(true), { isActive });
 
   const unpaidBills = useMemo(
     () => (detail ? detail.bills.filter((b) => b.status === 'active' && b.outstanding_amount > 0) : []),
