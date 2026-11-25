@@ -116,8 +116,6 @@ SELECT
   b.customer_name_snapshot,
   b.bill_date,
   b.subtotal,
-  COALESCE(br.total_returned, 0)::numeric(12,2)                      AS total_returned,
-  (b.subtotal - COALESCE(br.total_returned, 0))::numeric(12,2)       AS net_subtotal,
   COALESCE(bp.amount_paid, 0)::numeric(12,2)                         AS amount_paid,
   CASE
     WHEN b.status = 'active'
@@ -134,7 +132,9 @@ SELECT
   b.cancelled_at,
   b.cancel_reason,
   b.note,
-  b.created_at
+  b.created_at,
+  COALESCE(br.total_returned, 0)::numeric(12,2)                      AS total_returned,
+  (b.subtotal - COALESCE(br.total_returned, 0))::numeric(12,2)       AS net_subtotal
 FROM public.bills b
 LEFT JOIN bill_paid bp ON bp.bill_id = b.id
 LEFT JOIN bill_returned br ON br.bill_id = b.id;
