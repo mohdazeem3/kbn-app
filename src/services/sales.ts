@@ -6,10 +6,14 @@ import type {
   BillDetail,
   BillItemDetail,
   BillPaymentAllocationDetail,
+  BillReturn,
+  BillReturnItem,
   CancelBillInput,
   CreateBillInput,
   CustomerRefundRecord,
   PaymentMode,
+  ProcessBillReturnInput,
+  ProcessBillReturnResult,
 } from '@/types/database';
 
 interface PostgrestErrorLike {
@@ -297,8 +301,56 @@ function unwrapSingle<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
+export async function getBillReturns(billId: string): Promise<BillReturn[]> {
+  try {
+    const { data, error } = await supabase
+      .from('bill_returns')
+      .select(
+        'id, bill_id, return_no, customer_id, customer_name_snapshot, return_date, total_boxes, total_amount, refund_amount, refund_mode, refund_id, reason, created_at, bill_return_items(id, return_id, bill_item_id, batch_id, fruit_id, variety_id, fruit_name_snapshot, variety_name_snapshot, boxes, sell_rate, line_total, created_at)'
+      )
+      .eq('bill_id', billId)
+      .order('created_at', { ascending: false });
+
+    if (error || !data) return [];
+    return (data as unknown as Array<BillReturn & { bill_return_items?: BillReturnItem[] }>).map((r) => ({
+      ...r,
+      total_boxes: Number(r.total_boxes),
+      total_amount: Number(r.total_amount),
+      refund_amount: Number(r.refund_amount),
+      items: (r.bill_return_items ?? []).map((i) => ({
+        ...i,
+        boxes: Number(i.boxes),
+        sell_rate: Number(i.sell_rate),
+        line_total: Number(i.line_total),
+      })),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function processBillReturn(
+  input: ProcessBillReturnInput
+): Promise<ProcessBillReturnResult> {
+  const { data, error } = await supabase.rpc('process_bill_return', {
+    p_bill_id: input.bill_id,
+    p_items: input.items,
+    p_refund_mode: input.refund_mode,
+    p_refund_date: input.refund_date || null,
+    p_reason: input.reason?.trim() || null,
+    p_idempotency_key: input.idempotency_key || null,
+  });
+
+  if (error) {
+    throw formatSalesError(error, 'Could not process bill return.');
+  }
+
+  invalidateOnSale();
+  return data as ProcessBillReturnResult;
+}
+
 export async function getBillDetail(billId: string): Promise<BillDetail> {
-  const [billRes, itemsRes, payRes, refundRes] = await Promise.all([
+  const [billRes, itemsRes, payRes, refundRes, returns] = await Promise.all([
     supabase
       .from('bill_balances')
       .select(
@@ -325,6 +377,7 @@ export async function getBillDetail(billId: string): Promise<BillDetail> {
       .select('id, bill_id, customer_id, customer_name_snapshot, amount, mode, refund_date, note, created_at')
       .eq('bill_id', billId)
       .maybeSingle(),
+    getBillReturns(billId),
   ]);
 
   if (billRes.error) throw formatSalesError(billRes.error, 'Could not load bill summary.');
@@ -396,6 +449,7 @@ export async function getBillDetail(billId: string): Promise<BillDetail> {
     items,
     paymentAllocations,
     refund,
+    returns,
   };
 }
 

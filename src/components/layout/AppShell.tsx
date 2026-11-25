@@ -58,8 +58,8 @@ export function AppShell({ page, onNavigate, children }: ShellProps) {
             }}
             aria-current={active ? 'page' : undefined}
             className={`flex items-center gap-4 rounded-xl px-4 py-3.5 text-left transition-colors duration-150 ${active
-                ? 'bg-leaf-600 text-white shadow-sm'
-                : 'text-leaf-900 hover:bg-leaf-100'
+              ? 'bg-leaf-600 text-white shadow-sm'
+              : 'text-leaf-900 hover:bg-leaf-100'
               }`}
           >
             <item.icon

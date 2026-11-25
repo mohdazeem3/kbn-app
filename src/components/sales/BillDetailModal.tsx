@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Ban,
   Boxes,
-  IndianRupee,
-  Loader2,
   MessageCircle,
   Printer,
-  Smartphone,
+  RotateCcw,
   Truck,
 } from 'lucide-react';
 import {
@@ -20,7 +19,8 @@ import {
 } from '@/components/ui';
 import { PrintableBillModal } from '@/components/sales/PrintableBillModal';
 import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
-import { formatDisplayDate, getLocalIsoDate } from '@/services/inventory';
+import { BillReturnModal } from '@/components/sales/BillReturnModal';
+import { formatDisplayDate } from '@/services/inventory';
 import { cancelBill, getBillDetail } from '@/services/sales';
 import type { BillDetail, PaymentMode, PaymentStatus } from '@/types/database';
 
@@ -49,17 +49,50 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [showCancelForm, setShowCancelForm] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const [refundMode, setRefundMode] = useState<PaymentMode | null>(null);
-  const [refundDate, setRefundDate] = useState(() => getLocalIsoDate());
-  const [refundNote, setRefundNote] = useState('');
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelRefundMode, setCancelRefundMode] = useState<PaymentMode>('cash');
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
   const isClosingNestedRef = useRef(false);
   const nestedCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const activePaid = useMemo(() => {
+    if (!detail) return 0;
+    return detail.paymentAllocations
+      .filter((pa) => pa.status === 'active')
+      .reduce((sum, pa) => sum + pa.amount, 0);
+  }, [detail]);
+
+  const hasReturns = useMemo(() => {
+    return Boolean(detail?.returns && detail.returns.length > 0);
+  }, [detail]);
+
+  const handleExecuteCancel = async () => {
+    if (!detail) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await cancelBill({
+        bill_id: detail.bill.bill_id,
+        reason: cancelReason.trim() || null,
+        refund_mode: activePaid > 0 ? cancelRefundMode : null,
+        refund_date: null,
+        refund_note: null,
+      });
+      setShowCancelConfirm(false);
+      onCancelled(detail.bill.bill_no);
+      await loadDetail(detail.bill.bill_id);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Could not cancel bill.');
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -101,53 +134,22 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
   useEffect(() => {
     if (!billId) {
       setDetail(null);
-      setShowCancelForm(false);
-      setCancelError(null);
+      setShowReturnModal(false);
       setShowPrint(false);
       setShowWhatsApp(false);
+      setShowCancelConfirm(false);
+      setCancelReason('');
+      setCancelError(null);
       return;
     }
-    setShowCancelForm(false);
+    setShowReturnModal(false);
     setShowPrint(false);
     setShowWhatsApp(false);
+    setShowCancelConfirm(false);
     setCancelReason('');
-    setRefundMode(null);
-    setRefundDate(getLocalIsoDate());
-    setRefundNote('');
     setCancelError(null);
     void loadDetail(billId);
   }, [billId, loadDetail]);
-
-  const handleConfirmCancel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!detail) return;
-    setCancelError(null);
-
-    const needsRefund = detail.bill.amount_paid > 0;
-    if (needsRefund && !refundMode) {
-      setCancelError(
-        `Select Cash or UPI refund mode to record the ₹${detail.bill.amount_paid.toLocaleString('en-IN')} refund.`
-      );
-      return;
-    }
-
-    setCancelling(true);
-    try {
-      await cancelBill({
-        bill_id: detail.bill.bill_id,
-        reason: cancelReason.trim() || null,
-        refund_mode: needsRefund ? refundMode : null,
-        refund_date: needsRefund ? refundDate : null,
-        refund_note: needsRefund ? refundNote.trim() || null : null,
-      });
-      onCancelled(detail.bill.bill_no);
-      onClose();
-    } catch (err) {
-      setCancelError(err instanceof Error ? err.message : 'Could not cancel bill.');
-    } finally {
-      setCancelling(false);
-    }
-  };
 
   return (
     <Modal
@@ -158,7 +160,7 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
           ? `${detail.bill.customer_name_snapshot} • ${formatDisplayDate(detail.bill.bill_date)}`
           : undefined
       }
-      onClose={cancelling ? () => undefined : onClose}
+      onClose={onClose}
     >
       {loading ? (
         <LoadingCard label="Loading bill details…" />
@@ -369,146 +371,216 @@ export function BillDetailModal({ billId, onClose, onCancelled }: BillDetailModa
             </div>
           )}
 
-          {/* Cancel Bill Action (Audit-Preserving) */}
+          {/* Return History (if returns have been recorded) */}
+          {detail.returns && detail.returns.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-extrabold uppercase tracking-wide text-leaf-700">
+                Returns &amp; Restocked Items
+              </h3>
+              <div className="space-y-2.5">
+                {detail.returns.map((ret) => (
+                  <div
+                    key={ret.id}
+                    className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 text-xs text-leaf-900 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 font-bold">
+                      <span className="text-amber-900">{ret.return_no}</span>
+                      <span className="text-stone-600">
+                        {formatDisplayDate(ret.return_date)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between font-semibold">
+                      <span>Restored to stock:</span>
+                      <span className="font-extrabold">{ret.total_boxes} box(es)</span>
+                    </div>
+
+                    {ret.refund_amount > 0 && (
+                      <div className="flex justify-between font-bold text-mango-800">
+                        <span>Refunded to customer:</span>
+                        <span>
+                          ₹{ret.refund_amount.toLocaleString('en-IN')}{' '}
+                          {ret.refund_mode ? `(${ret.refund_mode.toUpperCase()})` : ''}
+                        </span>
+                      </div>
+                    )}
+
+                    {ret.reason && (
+                      <p className="text-stone-600 italic">Reason: {ret.reason}</p>
+                    )}
+
+                    {ret.items && ret.items.length > 0 && (
+                      <div className="border-t border-amber-200/80 pt-2 space-y-1">
+                        {ret.items.map((i) => (
+                          <div key={i.id} className="flex justify-between text-stone-700">
+                            <span>
+                              {i.fruit_name_snapshot} — {i.variety_name_snapshot} ({i.boxes} bx)
+                            </span>
+                            <span className="font-bold">
+                              ₹{i.line_total.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions: Return / Refund AND Cancel Bill (Preserved together) */}
           {detail.bill.status === 'active' && (
-            <div className="border-t border-leaf-100 pt-4">
-              {!showCancelForm ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-leaf-600">
-                    Cancel this bill and restore its stock allocations.
-                  </p>
+            <div className="border-t border-leaf-100 pt-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 1. Return / Refund Action */}
+                <div className="rounded-xl border border-mango-200 bg-mango-50/50 p-3.5 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold text-mango-950 text-sm">
+                      <RotateCcw className="h-4 w-4 text-mango-600" />
+                      <span>Return / Refund</span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-600">
+                      Process returned fruit boxes, refund cash/UPI, and restore inventory to stock.
+                    </p>
+                  </div>
                   <Button
                     variant="secondary"
+                    size="sm"
+                    icon={RotateCcw}
+                    onClick={() => setShowReturnModal(true)}
+                    className="!border-mango-400 !text-mango-900 hover:!bg-mango-100 font-bold self-start"
+                  >
+                    Process Return
+                  </Button>
+                </div>
+
+                {/* 2. Cancel Bill Action */}
+                <div className="rounded-xl border border-red-200 bg-red-50/40 p-3.5 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold text-red-950 text-sm">
+                      <Ban className="h-4 w-4 text-red-600" />
+                      <span>Cancel Entire Bill</span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-600">
+                      {hasReturns
+                        ? 'Cannot cancel bill with recorded returns. Use Return / Refund instead.'
+                        : 'Cancel an erroneously created bill. Restores all stock and reverses payments.'}
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     icon={Ban}
-                    onClick={() => setShowCancelForm(true)}
+                    disabled={hasReturns}
+                    onClick={() => {
+                      setCancelError(null);
+                      setShowCancelConfirm(true);
+                    }}
+                    className="!border-red-300 !text-red-700 hover:!bg-red-50 font-bold self-start"
                   >
                     Cancel Bill
                   </Button>
                 </div>
-              ) : (
-                <form onSubmit={handleConfirmCancel} className="space-y-4 rounded-xl border-2 border-red-200 bg-red-50/50 p-4">
-                  <p className="text-base font-extrabold text-red-900">
-                    Confirm Bill Cancellation ({detail.bill.bill_no})
-                  </p>
+              </div>
 
-                  {cancelError && <AlertBanner tone="error" message={cancelError} />}
-
-                  {detail.bill.amount_paid > 0 ? (
-                    <div className="space-y-3 rounded-xl bg-white p-3.5 text-sm text-leaf-800">
-                      <p className="font-semibold">
-                        <span className="font-extrabold text-leaf-950">
-                          ₹{detail.bill.amount_paid.toLocaleString('en-IN')}
-                        </span>{' '}
-                        received on this bill. Select how you refunded the customer:
+              {/* Inline Cancel Confirmation Card */}
+              {showCancelConfirm && (
+                <div className="rounded-xl border-2 border-red-300 bg-red-50/80 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-extrabold text-red-950">
+                        Confirm Complete Bill Cancellation
                       </p>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => setRefundMode('cash')}
-                          aria-pressed={refundMode === 'cash'}
-                          disabled={cancelling}
-                          className={`flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 font-bold transition-colors ${
-                            refundMode === 'cash'
-                              ? 'border-leaf-600 bg-leaf-50 text-leaf-800'
-                              : 'border-leaf-200 bg-white text-leaf-700 hover:border-leaf-400'
-                          }`}
-                        >
-                          <IndianRupee className="h-4 w-4" aria-hidden /> Cash Refund
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRefundMode('upi')}
-                          aria-pressed={refundMode === 'upi'}
-                          disabled={cancelling}
-                          className={`flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 font-bold transition-colors ${
-                            refundMode === 'upi'
-                              ? 'border-leaf-600 bg-leaf-50 text-leaf-800'
-                              : 'border-leaf-200 bg-white text-leaf-700 hover:border-leaf-400'
-                          }`}
-                        >
-                          <Smartphone className="h-4 w-4" aria-hidden /> UPI Refund
-                        </button>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <FieldWrap label="Refund date">
-                          <TextInput
-                            type="date"
-                            value={refundDate}
-                            onChange={(e) => setRefundDate(e.target.value)}
-                            disabled={cancelling}
+                      <p className="text-xs text-red-800 mt-0.5">
+                        This will cancel {detail.bill.bill_no}, restore all original stock boxes to their inward deliveries, and permanently cancel the bill.
+                      </p>
+                    </div>
+                  </div>
+
+                  {activePaid > 0 && (
+                    <div className="rounded-lg bg-white p-3 border border-red-200 space-y-2">
+                      <p className="text-xs font-bold text-leaf-900">
+                        ₹{activePaid.toLocaleString('en-IN')} was collected on this bill. Choose customer refund payout method:
+                      </p>
+                      <div className="flex gap-4 text-xs font-bold text-leaf-900">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="cancelRefundMode"
+                            value="cash"
+                            checked={cancelRefundMode === 'cash'}
+                            onChange={() => setCancelRefundMode('cash')}
+                            className="text-mango-600 focus:ring-mango-500"
                           />
-                        </FieldWrap>
-                        <label className="block">
-                          <span className="mb-1.5 flex items-center justify-between gap-2 text-sm font-bold text-leaf-900">
-                            <span>Refund Note</span>
-                            <span className="text-xs font-semibold text-leaf-500">Optional</span>
-                          </span>
-                          <TextInput
-                            placeholder="UPI ref or cash note"
-                            value={refundNote}
-                            onChange={(e) => setRefundNote(e.target.value)}
-                            disabled={cancelling}
+                          <span>Cash Payout</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="cancelRefundMode"
+                            value="upi"
+                            checked={cancelRefundMode === 'upi'}
+                            onChange={() => setCancelRefundMode('upi')}
+                            className="text-mango-600 focus:ring-mango-500"
                           />
+                          <span>UPI Payout</span>
                         </label>
                       </div>
-                      {!detail.bill.is_cash_customer && (
-                        <p className="text-xs text-leaf-600">
-                          Tip: If no money actually changed hands (mistaken payment entry), cancel
-                          the payment first under Customers → Payments &amp; Refunds before
-                          cancelling this bill.
-                        </p>
-                      )}
                     </div>
-                  ) : (
-                    <p className="text-sm font-medium text-red-800">
-                      No payment received on this bill. Allocated boxes will be restored to stock.
-                    </p>
                   )}
 
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center justify-between gap-2 text-sm font-bold text-leaf-900">
-                      <span>Cancellation Reason</span>
-                      <span className="text-xs font-semibold text-leaf-500">Optional</span>
-                    </span>
+                  <FieldWrap label="Reason for cancellation (optional)">
                     <TextInput
-                      placeholder="Reason for cancellation"
+                      placeholder="e.g. Mistaken bill entry / wrong customer selected"
                       value={cancelReason}
                       onChange={(e) => setCancelReason(e.target.value)}
-                      disabled={cancelling}
+                      maxLength={200}
                     />
-                  </label>
+                  </FieldWrap>
 
-                  <div className="flex flex-wrap justify-end gap-2">
+                  {cancelError && (
+                    <AlertBanner tone="error" message={cancelError} />
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
                     <Button
-                      type="button"
                       variant="secondary"
-                      onClick={() => {
-                        setShowCancelForm(false);
-                        setCancelError(null);
-                      }}
+                      size="sm"
+                      onClick={() => setShowCancelConfirm(false)}
                       disabled={cancelling}
                     >
-                      Keep Bill Active
+                      Keep Bill
                     </Button>
                     <Button
-                      type="submit"
-                      variant="accent"
-                      icon={cancelling ? Loader2 : Ban}
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void handleExecuteCancel()}
                       disabled={cancelling}
+                      className="!bg-red-600 hover:!bg-red-700 text-white border-0"
                     >
-                      {cancelling
-                        ? 'Cancelling…'
-                        : detail.bill.amount_paid > 0
-                          ? 'Cancel Bill & Record Refund'
-                          : 'Confirm Cancel Bill'}
+                      {cancelling ? 'Cancelling Bill…' : 'Yes, Confirm Cancellation'}
                     </Button>
                   </div>
-                </form>
+                </div>
               )}
             </div>
           )}
         </div>
       ) : null}
+
+      {showReturnModal && detail && (
+        <BillReturnModal
+          open={showReturnModal}
+          preselectedBillId={detail.bill.bill_id}
+          onClose={() => setShowReturnModal(false)}
+          onReturnSuccess={() => {
+            void loadDetail(detail.bill.bill_id);
+            onCancelled(detail.bill.bill_no);
+          }}
+        />
+      )}
 
       {showPrint && detail && (
         <PrintableBillModal

@@ -218,22 +218,26 @@ export function buildThermalReceiptHtml(receiptContentHtml: string): string {
     }
     *, *::before, *::after {
       box-sizing: border-box;
+      -webkit-font-smoothing: none !important;
+      -moz-osx-font-smoothing: unset !important;
+      text-rendering: optimizeLegibility !important;
     }
     html, body {
       margin: 0;
       padding: 0;
       width: 72mm;
       max-width: 72mm;
-      background: #fff;
-      color: #000;
-      font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
-      font-size: 11px;
-      line-height: 1.3;
+      background: #ffffff;
+      color: #000000;
+      font-family: Consolas, 'Segoe UI Mono', 'Courier New', Courier, monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      line-height: 1.35;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: unset;
+      text-rendering: optimizeLegibility;
     }
     #printable-thermal-receipt {
       width: 72mm !important;
@@ -241,40 +245,53 @@ export function buildThermalReceiptHtml(receiptContentHtml: string): string {
       margin: 0 !important;
       padding: 2mm 1.5mm 8mm 2.5mm !important; /* ~2.5mm left breathing space, 1.5mm right margin, 8mm bottom pad for cutter */
       box-sizing: border-box !important;
-      color: #000 !important;
-      background: #fff !important;
+      color: #000000 !important;
+      background: #ffffff !important;
       border: none !important;
       box-shadow: none !important;
+      font-family: Consolas, 'Segoe UI Mono', 'Courier New', Courier, monospace !important;
+      font-size: 11.5px !important;
+      font-weight: 600 !important;
+      line-height: 1.35 !important;
     }
     #printable-thermal-receipt,
     #printable-thermal-receipt * {
-      color: #000 !important;
+      color: #000000 !important;
+      -webkit-text-fill-color: #000000 !important;
     }
     #printable-thermal-receipt .border-stone-800,
     #printable-thermal-receipt .border-stone-500,
     #printable-thermal-receipt .border-stone-400,
     #printable-thermal-receipt .border-stone-300 {
-      border-color: #000 !important;
+      border-color: #000000 !important;
     }
     table {
       width: 100% !important;
       border-collapse: collapse !important;
+      font-weight: 600 !important;
     }
-    th, td {
-      padding: 2px 0;
+    th {
+      padding: 3px 0 !important;
+      font-weight: 900 !important;
+      border-bottom: 1.5px solid #000000 !important;
+    }
+    td {
+      padding: 2.5px 0 !important;
+      font-weight: 600 !important;
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
     .text-left { text-align: left; }
-    .font-semibold { font-weight: 600; }
-    .font-bold { font-weight: bold; }
-    .font-black { font-weight: 900; }
+    .font-medium { font-weight: 600 !important; }
+    .font-semibold { font-weight: 700 !important; }
+    .font-bold { font-weight: 800 !important; }
+    .font-black { font-weight: 900 !important; }
     .uppercase { text-transform: uppercase; }
-    .border-t { border-top: 1px solid #000; }
-    .border-t-2 { border-top: 2px solid #000; }
-    .border-b { border-bottom: 1px solid #000; }
-    .border-dashed { border-style: dashed; }
-    .border-dotted { border-style: dotted; }
+    .border-t { border-top: 1.5px solid #000000 !important; }
+    .border-t-2 { border-top: 2px solid #000000 !important; }
+    .border-b { border-bottom: 1.5px solid #000000 !important; }
+    .border-dashed { border-style: dashed !important; }
+    .border-dotted { border-style: dotted !important; }
     .tabular-nums { font-variant-numeric: tabular-nums; }
     .flex { display: flex; }
     .justify-between { justify-content: space-between; }

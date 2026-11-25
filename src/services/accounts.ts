@@ -17,6 +17,7 @@ import type {
   CustomerPaymentAllocationItem,
   CustomerPaymentRecord,
   CustomerRefundWithBill,
+  CustomerReturnRecord,
   DeliveryBalance,
   PaymentMode,
   ReallocateSupplierAllocationInput,
@@ -170,6 +171,23 @@ interface RawCustomerRefundRow {
   bills: { bill_no: string } | { bill_no: string }[] | null;
 }
 
+interface RawCustomerReturnRow {
+  id: string;
+  bill_id: string;
+  return_no: string;
+  customer_id: string | null;
+  customer_name_snapshot: string;
+  return_date: string;
+  total_boxes: number;
+  total_amount: number;
+  refund_amount: number;
+  refund_mode: PaymentMode | null;
+  refund_id: string | null;
+  reason: string | null;
+  created_at: string;
+  bills: { bill_no: string } | { bill_no: string }[] | null;
+}
+
 export async function getCustomerAccountDetail(
   customerId: string,
   options?: { forceRefresh?: boolean }
@@ -177,7 +195,7 @@ export async function getCustomerAccountDetail(
   return appCache.fetch(
     `customer_ledger:${customerId}`,
     async () => {
-      const [balRes, obRes, billsRes, payRes, refundRes] = await Promise.all([
+      const [balRes, obRes, billsRes, payRes, refundRes, returnRes] = await Promise.all([
         supabase
           .from('customer_balances')
           .select(
@@ -193,7 +211,7 @@ export async function getCustomerAccountDetail(
         supabase
           .from('bill_balances')
           .select(
-            'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+            'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, total_returned, net_subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
           )
           .eq('customer_id', customerId)
           .order('bill_date', { ascending: false })
@@ -214,6 +232,14 @@ export async function getCustomerAccountDetail(
           .eq('customer_id', customerId)
           .order('refund_date', { ascending: false })
           .order('created_at', { ascending: false }),
+        supabase
+          .from('bill_returns')
+          .select(
+            'id, bill_id, return_no, customer_id, customer_name_snapshot, return_date, total_boxes, total_amount, refund_amount, refund_mode, refund_id, reason, created_at, bills(bill_no)'
+          )
+          .eq('customer_id', customerId)
+          .order('return_date', { ascending: false })
+          .order('created_at', { ascending: false }),
       ]);
 
       if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load customer account.');
@@ -221,6 +247,10 @@ export async function getCustomerAccountDetail(
       if (billsRes.error) throw formatAccountsError(billsRes.error, 'Could not load customer bills.');
       if (payRes.error) throw formatAccountsError(payRes.error, 'Could not load customer payments.');
       if (refundRes.error) throw formatAccountsError(refundRes.error, 'Could not load customer refunds.');
+      // Graceful fallback for customer returns if migration 012 has not yet been applied:
+      if (returnRes.error) {
+        console.warn('Customer returns not available (migration 012 pending):', returnRes.error.message);
+      }
 
       const openingBalances: CustomerOpeningBalance[] = (
         (obRes.data ?? []) as CustomerOpeningBalance[]
@@ -229,6 +259,8 @@ export async function getCustomerAccountDetail(
       const bills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
         ...b,
         subtotal: Number(b.subtotal),
+        total_returned: b.total_returned ? Number(b.total_returned) : 0,
+        net_subtotal: b.net_subtotal ? Number(b.net_subtotal) : Number(b.subtotal),
         amount_paid: Number(b.amount_paid),
         outstanding_amount: Number(b.outstanding_amount),
       }));
@@ -291,12 +323,35 @@ export async function getCustomerAccountDetail(
         }
       );
 
+      const returns: CustomerReturnRecord[] = ((returnRes.data ?? []) as RawCustomerReturnRow[]).map(
+        (r) => {
+          const bill = unwrapSingle(r.bills);
+          return {
+            id: r.id,
+            bill_id: r.bill_id,
+            bill_no: bill?.bill_no ?? 'Bill',
+            customer_id: r.customer_id,
+            customer_name_snapshot: r.customer_name_snapshot,
+            return_no: r.return_no,
+            return_date: r.return_date,
+            total_boxes: Number(r.total_boxes),
+            total_amount: Number(r.total_amount),
+            refund_amount: Number(r.refund_amount),
+            refund_mode: r.refund_mode,
+            refund_id: r.refund_id,
+            reason: r.reason,
+            created_at: r.created_at,
+          };
+        }
+      );
+
       return {
         balance: normalizeCustomerBalance(balRes.data as CustomerBalance),
         openingBalances,
         bills,
         payments,
         refunds,
+        returns,
       };
     },
     {

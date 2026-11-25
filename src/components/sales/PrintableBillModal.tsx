@@ -241,22 +241,22 @@ export function PrintableBillModal({
                 id="printable-thermal-receipt"
                 className="w-full max-w-[320px] bg-white p-5 shadow-md border border-stone-300 font-mono text-xs leading-relaxed text-black"
                 style={{
-                  fontFamily: '"JetBrains Mono", Courier, monospace',
+                  fontFamily: 'Consolas, "Segoe UI Mono", "Courier New", Courier, monospace',
                   letterSpacing: '-0.02em',
                 }}
               >
                 {/* Shop Header */}
                 <div className="text-center space-y-0.5 pb-2">
-                  <h1 className="text-sm font-black uppercase tracking-wider">
+                  <h1 className="text-sm font-black uppercase tracking-wider text-black">
                     FRUIT WHOLESALE MANAGER
                   </h1>
-                  <p className="text-[10px] uppercase font-bold text-stone-700">
+                  <p className="text-[10px] uppercase font-bold text-black">
                     Commission Agent &amp; Fruit Merchant
                   </p>
-                  <p className="text-[10px] text-stone-600">
+                  <p className="text-[10px] font-semibold text-black">
                     APMC Fruit Market Yard • Gate 2
                   </p>
-                  <p className="text-[10px] text-stone-600">
+                  <p className="text-[10px] font-semibold text-black">
                     Phone: +91 98765 43210
                   </p>
                 </div>
@@ -264,14 +264,14 @@ export function PrintableBillModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Bill Meta */}
-                <div className="space-y-0.5 text-[11px]">
+                <div className="space-y-0.5 text-[11px] font-semibold text-black">
                   <div className="flex justify-between">
                     <span className="font-bold">Bill No:</span>
-                    <span className="font-bold uppercase">{bill.bill_no}</span>
+                    <span className="font-black uppercase">{bill.bill_no}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Date:</span>
-                    <span>{formatDisplayDate(bill.bill_date)}</span>
+                    <span className="font-bold">{formatDisplayDate(bill.bill_date)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Customer:</span>
@@ -290,7 +290,7 @@ export function PrintableBillModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Items Table */}
-                <table className="w-full text-left text-[11px] border-collapse">
+                <table className="w-full text-left text-[11px] border-collapse font-semibold text-black">
                   <thead>
                     <tr className="border-b border-stone-800 font-bold">
                       <th className="py-1 text-left w-6">#</th>
@@ -303,18 +303,18 @@ export function PrintableBillModal({
                   <tbody className="divide-y divide-dotted divide-stone-400">
                     {items.map((item, idx) => (
                       <tr key={item.id} className="align-top">
-                        <td className="py-1">{idx + 1}</td>
-                        <td className="py-1 font-semibold pr-1">
+                        <td className="py-1 font-bold">{idx + 1}</td>
+                        <td className="py-1 font-bold pr-1">
                           <div>{item.fruit_name_snapshot}</div>
-                          <div className="text-[10px] text-stone-600">
+                          <div className="text-[10px] font-semibold text-black">
                             {item.variety_name_snapshot}
                           </div>
                         </td>
-                        <td className="py-1 text-center font-bold">{item.boxes}</td>
-                        <td className="py-1 text-right tabular-nums">
+                        <td className="py-1 text-center font-black">{item.boxes}</td>
+                        <td className="py-1 text-right font-bold tabular-nums">
                           {item.sell_rate}
                         </td>
-                        <td className="py-1 text-right font-bold tabular-nums">
+                        <td className="py-1 text-right font-black tabular-nums">
                           {item.line_total}
                         </td>
                       </tr>
@@ -325,10 +325,10 @@ export function PrintableBillModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Subtotals */}
-                <div className="space-y-0.5 text-[11px]">
+                <div className="space-y-0.5 text-[11px] font-semibold text-black">
                   <div className="flex justify-between font-bold">
                     <span>Total Boxes:</span>
-                    <span>{totalBoxes} boxes</span>
+                    <span className="font-black">{totalBoxes} boxes</span>
                   </div>
                   <div className="flex justify-between text-xs font-black">
                     <span>Bill Amount:</span>
@@ -337,56 +337,56 @@ export function PrintableBillModal({
                     </span>
                   </div>
                   {paymentBreakdown.cash > 0 && (
-                    <div className="flex justify-between text-stone-700">
+                    <div className="flex justify-between font-bold text-black">
                       <span>• Paid Cash:</span>
-                      <span className="tabular-nums">
+                      <span className="tabular-nums font-black">
                         ₹{paymentBreakdown.cash.toLocaleString('en-IN')}
                       </span>
                     </div>
                   )}
                   {paymentBreakdown.upi > 0 && (
-                    <div className="flex justify-between text-stone-700">
+                    <div className="flex justify-between font-bold text-black">
                       <span>• Paid UPI:</span>
-                      <span className="tabular-nums">
+                      <span className="tabular-nums font-black">
                         ₹{paymentBreakdown.upi.toLocaleString('en-IN')}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold">
                     <span>Total Paid Now:</span>
-                    <span className="tabular-nums">
+                    <span className="tabular-nums font-black">
                       ₹{bill.amount_paid.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
 
                 {/* Customer Balance Summary: 4 Mandatory Ledger Fields */}
-                <div className="border-t-2 border-stone-800 my-2 pt-1">
+                <div className="border-t-2 border-stone-800 my-2 pt-1 font-semibold text-black">
                   <p className="text-[10px] font-black uppercase tracking-wider text-center mb-1">
                     CUSTOMER BALANCE SUMMARY
                   </p>
                   {bill.is_cash_customer ? (
-                    <div className="bg-stone-100 p-1.5 rounded text-[10px] space-y-0.5 text-center">
+                    <div className="bg-stone-100 p-1.5 rounded text-[10px] space-y-0.5 text-center text-black">
                       <p className="font-bold">Walk-in Cash Customer</p>
-                      <p>Paid in Full • Closing Balance: ₹0.00</p>
+                      <p className="font-semibold">Paid in Full • Closing Balance: ₹0.00</p>
                     </div>
                   ) : (
-                    <div className="space-y-0.5 text-[11px]">
+                    <div className="space-y-0.5 text-[11px] font-semibold text-black">
                       <div className="flex justify-between">
                         <span>1. Opening Balance:</span>
-                        <span className="tabular-nums font-semibold">
+                        <span className="tabular-nums font-bold">
                           ₹{openingBal.toLocaleString('en-IN')}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>2. Bill Amount:</span>
-                        <span className="tabular-nums font-semibold">
+                        <span className="tabular-nums font-bold">
                           ₹{billAmt.toLocaleString('en-IN')}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>3. Paid Amount:</span>
-                        <span className="tabular-nums font-semibold">
+                        <span className="tabular-nums font-bold">
                           ₹{paidAmt.toLocaleString('en-IN')}
                         </span>
                       </div>
@@ -401,7 +401,7 @@ export function PrintableBillModal({
                 </div>
 
                 {bill.note && (
-                  <div className="border-t border-dotted border-stone-500 my-1.5 pt-1 text-[10px]">
+                  <div className="border-t border-dotted border-stone-500 my-1.5 pt-1 text-[10px] font-semibold text-black">
                     <span className="font-bold">Note: </span>
                     <span>{bill.note}</span>
                   </div>
@@ -410,10 +410,10 @@ export function PrintableBillModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Footer Notes */}
-                <div className="text-center text-[10px] space-y-0.5 text-stone-600">
+                <div className="text-center text-[10px] space-y-0.5 text-black font-semibold">
                   <p className="font-bold text-black">Thank you for your business!</p>
                   <p>Goods once sold will not be taken back.</p>
-                  <p className="text-[9px] text-stone-400 pt-1">
+                  <p className="text-[9px] font-bold text-black pt-1">
                     FruitWholesale Manager
                   </p>
                 </div>

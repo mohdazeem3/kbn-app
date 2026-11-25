@@ -52,7 +52,7 @@ interface LedgerRow {
   id: string;
   date: string;
   createdAt: string;
-  kind: 'opening_balance' | 'bill' | 'payment' | 'refund';
+  kind: 'opening_balance' | 'bill' | 'payment' | 'refund' | 'return';
   title: string;
   subtitle: string;
   amount: number;
@@ -205,6 +205,27 @@ export function CustomerAccountView({
         direction: 'refund',
         cancelled: false,
         note: ref.note,
+      });
+    }
+
+    for (const ret of detail.returns ?? []) {
+      rows.push({
+        id: `ret:${ret.id}`,
+        date: ret.return_date,
+        createdAt: ret.created_at,
+        kind: 'return',
+        title: `Return • ${ret.return_no}`,
+        subtitle: `Returned goods for ${ret.bill_no} (${ret.total_boxes} bxs)${
+          ret.refund_amount > 0
+            ? ` • Refund ₹${ret.refund_amount.toLocaleString('en-IN')} via ${ret.refund_mode?.toUpperCase()}`
+            : ' • Credited against bill balance'
+        }`,
+        amount: ret.total_amount,
+        statusLabel: ret.refund_amount > 0 ? 'Refunded' : 'Credited',
+        statusTone: 'orange',
+        direction: 'credit',
+        cancelled: false,
+        note: ret.reason,
       });
     }
 
@@ -478,7 +499,9 @@ export function CustomerAccountView({
                       ? { label: 'Payment', tone: 'green' as const }
                       : row.kind === 'refund'
                         ? { label: 'Refund', tone: 'orange' as const }
-                        : { label: 'Opening', tone: 'orange' as const };
+                        : row.kind === 'return'
+                          ? { label: 'Return', tone: 'orange' as const }
+                          : { label: 'Opening', tone: 'orange' as const };
 
                 return (
                   <div
@@ -523,11 +546,13 @@ export function CustomerAccountView({
                         {row.amount.toLocaleString('en-IN')}
                       </p>
                       <p className="text-xs font-semibold text-leaf-600">
-                        {row.direction === 'credit'
-                          ? 'Received'
-                          : row.direction === 'refund'
-                            ? 'Refund paid out'
-                            : 'Billed / Due'}
+                        {row.kind === 'return'
+                          ? 'Return Credit'
+                          : row.direction === 'credit'
+                            ? 'Received'
+                            : row.direction === 'refund'
+                              ? 'Refund paid out'
+                              : 'Billed / Due'}
                       </p>
                     </div>
                   </div>

@@ -98,16 +98,20 @@
     max-width: 72mm !important;
     box-sizing: border-box !important;
     margin: 0 !important;
-    padding: 2mm 1mm 8mm 1mm !important; /* 8mm bottom pad ensures auto-cutter doesn't cut text */
+    padding: 2mm 1.5mm 8mm 2.5mm !important; /* ~2.5mm left breathing space, 8mm bottom pad ensures auto-cutter doesn't cut text */
     color: #000 !important;
     background: #fff !important;
     box-shadow: none !important;
     border: none !important;
-    font-size: 11px !important;
-    line-height: 1.3 !important;
-    font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+    line-height: 1.35 !important;
+    font-family: Consolas, 'Segoe UI Mono', 'Courier New', Courier, monospace !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    -webkit-font-smoothing: none !important;
+    -moz-osx-font-smoothing: unset !important;
+    text-rendering: optimizeLegibility !important;
     page-break-after: avoid !important;
     break-after: avoid !important;
   }

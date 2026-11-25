@@ -248,6 +248,8 @@ export interface BillBalance {
   customer_name_snapshot: string;
   bill_date: string;
   subtotal: number;
+  total_returned?: number;
+  net_subtotal?: number;
   amount_paid: number;
   outstanding_amount: number;
   payment_status: PaymentStatus;
@@ -315,6 +317,65 @@ export interface BillDetail {
   items: BillItemDetail[];
   paymentAllocations: BillPaymentAllocationDetail[];
   refund: CustomerRefundRecord | null;
+  returns?: BillReturn[];
+}
+
+export interface BillReturnItem {
+  id: string;
+  return_id: string;
+  bill_item_id: string;
+  batch_id: string;
+  fruit_id: string;
+  variety_id: string;
+  fruit_name_snapshot: string;
+  variety_name_snapshot: string;
+  boxes: number;
+  sell_rate: number;
+  line_total: number;
+  created_at: string;
+}
+
+export interface BillReturn {
+  id: string;
+  bill_id: string;
+  return_no: string;
+  customer_id: string | null;
+  customer_name_snapshot: string;
+  return_date: string;
+  total_boxes: number;
+  total_amount: number;
+  refund_amount: number;
+  refund_mode: PaymentMode | null;
+  refund_id: string | null;
+  reason: string | null;
+  created_at: string;
+  items?: BillReturnItem[];
+}
+
+export interface BillReturnItemInput {
+  bill_item_id: string;
+  boxes: number;
+}
+
+export interface ProcessBillReturnInput {
+  bill_id: string;
+  items: BillReturnItemInput[];
+  refund_mode: PaymentMode | null;
+  refund_date?: string | null;
+  reason?: string | null;
+  idempotency_key?: string;
+}
+
+export interface ProcessBillReturnResult {
+  success: boolean;
+  return_id: string;
+  return_no: string;
+  returned_boxes: number;
+  return_amount: number;
+  refund_amount: number;
+  refund_mode: PaymentMode | null;
+  is_full_return: boolean;
+  idempotent_replay?: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -383,12 +444,17 @@ export interface CustomerRefundWithBill extends CustomerRefundRecord {
   bill_no: string;
 }
 
+export interface CustomerReturnRecord extends BillReturn {
+  bill_no: string;
+}
+
 export interface CustomerAccountDetail {
   balance: CustomerBalance;
   openingBalances: CustomerOpeningBalance[];
   bills: BillBalance[];
   payments: CustomerPaymentRecord[];
   refunds: CustomerRefundWithBill[];
+  returns: CustomerReturnRecord[];
 }
 
 export interface CustomerPaymentAllocationInput {

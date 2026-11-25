@@ -174,22 +174,22 @@ export function PrintableDeliveryModal({
                 id="printable-thermal-receipt"
                 className="w-full max-w-[320px] bg-white p-5 shadow-md border border-stone-300 font-mono text-xs leading-relaxed text-black"
                 style={{
-                  fontFamily: '"JetBrains Mono", Courier, monospace',
+                  fontFamily: 'Consolas, "Segoe UI Mono", "Courier New", Courier, monospace',
                   letterSpacing: '-0.02em',
                 }}
               >
                 {/* Store Header */}
                 <div className="text-center space-y-0.5 pb-2">
-                  <h1 className="text-sm font-black uppercase tracking-wider">
+                  <h1 className="text-sm font-black uppercase tracking-wider text-black">
                     FRUIT WHOLESALE MANAGER
                   </h1>
-                  <p className="text-[10px] uppercase font-bold text-stone-700">
+                  <p className="text-[10px] uppercase font-bold text-black">
                     Inward Stock Receipt / Delivery Challan
                   </p>
-                  <p className="text-[10px] text-stone-600">
+                  <p className="text-[10px] font-semibold text-black">
                     APMC Fruit Market Yard • Gate 2
                   </p>
-                  <p className="text-[10px] text-stone-600">
+                  <p className="text-[10px] font-semibold text-black">
                     Phone: +91 98765 43210
                   </p>
                 </div>
@@ -197,14 +197,14 @@ export function PrintableDeliveryModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Delivery Meta */}
-                <div className="space-y-0.5 text-[11px]">
+                <div className="space-y-0.5 text-[11px] font-semibold text-black">
                   <div className="flex justify-between">
                     <span className="font-bold">Delivery No:</span>
-                    <span className="font-bold uppercase">{deliveryNo}</span>
+                    <span className="font-black uppercase">{deliveryNo}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Date:</span>
-                    <span>{receivedDate ? formatDisplayDate(receivedDate) : 'Today'}</span>
+                    <span className="font-bold">{receivedDate ? formatDisplayDate(receivedDate) : 'Today'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Supplier:</span>
@@ -215,7 +215,7 @@ export function PrintableDeliveryModal({
                   {supplierPhone && (
                     <div className="flex justify-between">
                       <span>Phone:</span>
-                      <span>{supplierPhone}</span>
+                      <span className="font-bold">{supplierPhone}</span>
                     </div>
                   )}
                   {challanNote && (
@@ -229,7 +229,7 @@ export function PrintableDeliveryModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Items Table */}
-                <table className="w-full text-left text-[11px] border-collapse">
+                <table className="w-full text-left text-[11px] border-collapse font-semibold text-black">
                   <thead>
                     <tr className="border-b border-stone-800 font-bold">
                       <th className="py-1 text-left w-6">#</th>
@@ -242,18 +242,18 @@ export function PrintableDeliveryModal({
                   <tbody className="divide-y divide-dotted divide-stone-400">
                     {items.map((item, idx) => (
                       <tr key={idx} className="align-top">
-                        <td className="py-1">{idx + 1}</td>
-                        <td className="py-1 font-semibold pr-1">
+                        <td className="py-1 font-bold">{idx + 1}</td>
+                        <td className="py-1 font-bold pr-1">
                           <div>{item.fruit_name}</div>
-                          <div className="text-[10px] text-stone-600">
+                          <div className="text-[10px] font-semibold text-black">
                             {item.variety_name}
                           </div>
                         </td>
-                        <td className="py-1 text-center font-bold">{item.boxes}</td>
-                        <td className="py-1 text-right tabular-nums">
+                        <td className="py-1 text-center font-black">{item.boxes}</td>
+                        <td className="py-1 text-right font-bold tabular-nums">
                           {item.rate}
                         </td>
-                        <td className="py-1 text-right font-bold tabular-nums">
+                        <td className="py-1 text-right font-black tabular-nums">
                           {item.total}
                         </td>
                       </tr>
@@ -264,10 +264,10 @@ export function PrintableDeliveryModal({
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Totals & Payments */}
-                <div className="space-y-0.5 text-[11px]">
+                <div className="space-y-0.5 text-[11px] font-semibold text-black">
                   <div className="flex justify-between font-bold">
                     <span>Total Received:</span>
-                    <span>{totalBoxes} boxes</span>
+                    <span className="font-black">{totalBoxes} boxes</span>
                   </div>
                   <div className="flex justify-between text-xs font-black">
                     <span>Total Purchase:</span>
@@ -275,9 +275,9 @@ export function PrintableDeliveryModal({
                       ₹{grandTotal.toLocaleString('en-IN')}
                     </span>
                   </div>
-                  <div className="flex justify-between text-stone-700">
+                  <div className="flex justify-between font-bold text-black">
                     <span>Amount Paid Now:</span>
-                    <span className="tabular-nums font-bold">
+                    <span className="tabular-nums font-black">
                       ₹{amountPaid.toLocaleString('en-IN')}
                     </span>
                   </div>
@@ -287,18 +287,18 @@ export function PrintableDeliveryModal({
                       ₹{balanceDue.toLocaleString('en-IN')}
                     </span>
                   </div>
-                  <div className="flex justify-between text-[10px] text-stone-600 pt-0.5">
+                  <div className="flex justify-between text-[10px] font-bold text-black pt-0.5">
                     <span>Payment Status:</span>
-                    <span className="uppercase font-bold">{paymentStatus}</span>
+                    <span className="uppercase font-black">{paymentStatus}</span>
                   </div>
                 </div>
 
                 <div className="border-t border-dashed border-stone-800 my-2" />
 
                 {/* Footer Notes */}
-                <div className="text-center text-[10px] space-y-0.5 text-stone-600">
+                <div className="text-center text-[10px] space-y-0.5 text-black font-semibold">
                   <p className="font-bold text-black">Stock Received In Good Condition</p>
-                  <p className="text-[9px] text-stone-400 pt-1">
+                  <p className="text-[9px] font-bold text-black pt-1">
                     FruitWholesale Manager
                   </p>
                 </div>
