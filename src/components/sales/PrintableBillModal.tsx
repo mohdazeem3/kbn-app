@@ -248,13 +248,11 @@ export function PrintableBillModal({
                 {/* Shop Header */}
                 <div className="text-center space-y-0.5 pb-2">
                   <h1 className="text-sm font-black uppercase tracking-wider text-black">
-                    FRUIT WHOLESALE MANAGER
+                    KBN FRUITS
                   </h1>
-                  <p className="text-[10px] uppercase font-bold text-black">
-                    Commission Agent &amp; Fruit Merchant
-                  </p>
+
                   <p className="text-[10px] font-semibold text-black">
-                    APMC Fruit Market Yard • Gate 2
+                    T/B 43, ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092
                   </p>
                   <p className="text-[10px] font-semibold text-black">
                     Phone: +91 98765 43210
@@ -412,9 +410,9 @@ export function PrintableBillModal({
                 {/* Footer Notes */}
                 <div className="text-center text-[10px] space-y-0.5 text-black font-semibold">
                   <p className="font-bold text-black">Thank you for your business!</p>
-                  <p>Goods once sold will not be taken back.</p>
+
                   <p className="text-[9px] font-bold text-black pt-1">
-                    FruitWholesale Manager
+                    KBN FRUITS
                   </p>
                 </div>
               </div>

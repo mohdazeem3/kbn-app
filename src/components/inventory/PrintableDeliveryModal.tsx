@@ -132,19 +132,19 @@ export function PrintableDeliveryModal({
 
   const items = detail?.batches
     ? detail.batches.map((b) => ({
-        fruit_name: b.fruit_name,
-        variety_name: b.variety_name,
-        boxes: b.boxes_received,
-        rate: b.purchase_rate,
-        total: b.purchase_amount,
-      }))
+      fruit_name: b.fruit_name,
+      variety_name: b.variety_name,
+      boxes: b.boxes_received,
+      rate: b.purchase_rate,
+      total: b.purchase_amount,
+    }))
     : snapshot?.items.map((i) => ({
-        fruit_name: i.fruit_name,
-        variety_name: i.variety_name,
-        boxes: i.boxes,
-        rate: i.purchase_rate,
-        total: i.line_total,
-      })) ?? [];
+      fruit_name: i.fruit_name,
+      variety_name: i.variety_name,
+      boxes: i.boxes,
+      rate: i.purchase_rate,
+      total: i.line_total,
+    })) ?? [];
 
   return (
     <Modal
@@ -181,13 +181,13 @@ export function PrintableDeliveryModal({
                 {/* Store Header */}
                 <div className="text-center space-y-0.5 pb-2">
                   <h1 className="text-sm font-black uppercase tracking-wider text-black">
-                    FRUIT WHOLESALE MANAGER
+                    KBN FRUITS
                   </h1>
                   <p className="text-[10px] uppercase font-bold text-black">
                     Inward Stock Receipt / Delivery Challan
                   </p>
                   <p className="text-[10px] font-semibold text-black">
-                    APMC Fruit Market Yard • Gate 2
+                    T/B 43, ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092
                   </p>
                   <p className="text-[10px] font-semibold text-black">
                     Phone: +91 98765 43210
@@ -299,7 +299,7 @@ export function PrintableDeliveryModal({
                 <div className="text-center text-[10px] space-y-0.5 text-black font-semibold">
                   <p className="font-bold text-black">Stock Received In Good Condition</p>
                   <p className="text-[9px] font-bold text-black pt-1">
-                    FruitWholesale Manager
+                    KBN FRUITS
                   </p>
                 </div>
               </div>

@@ -23,6 +23,7 @@ import {
   TextInput,
 } from '@/components/ui';
 import { BillDetailModal } from '@/components/sales/BillDetailModal';
+import { CustomerStatementModal } from './CustomerStatementModal';
 import { OpeningBalanceModal } from './OpeningBalanceModal';
 import { RecordCustomerPaymentModal } from './RecordCustomerPaymentModal';
 import {
@@ -92,6 +93,7 @@ export function CustomerAccountView({
 
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [openingModalOpen, setOpeningModalOpen] = useState(false);
+  const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
 
   // Inline cancel payment state
@@ -342,6 +344,14 @@ export function CustomerAccountView({
           Back to Customers
         </Button>
         <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            size="lg"
+            icon={FileText}
+            onClick={() => setStatementModalOpen(true)}
+          >
+            Download Statement
+          </Button>
           {balance.active && !balance.opening_balance_id && (
             <Button
               variant="secondary"
@@ -1043,6 +1053,12 @@ export function CustomerAccountView({
         billId={selectedBillId}
         onClose={() => setSelectedBillId(null)}
         onCancelled={handleBillCancelled}
+      />
+
+      <CustomerStatementModal
+        open={statementModalOpen}
+        onClose={() => setStatementModalOpen(false)}
+        detail={detail}
       />
     </div>
   );

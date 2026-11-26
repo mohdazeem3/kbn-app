@@ -188,6 +188,28 @@ interface RawCustomerReturnRow {
   bills: { bill_no: string } | { bill_no: string }[] | null;
 }
 
+interface PagedQueryResult<T> {
+  data: T[] | null;
+  error: PostgrestErrorLike | null;
+}
+
+async function fetchAllPages<T>(
+  queryFn: (from: number, to: number) => PromiseLike<PagedQueryResult<T>>
+): Promise<PagedQueryResult<T>> {
+  const pageSize = 1000;
+  let all: T[] = [];
+  let from = 0;
+  while (true) {
+    const res = await queryFn(from, from + pageSize - 1);
+    if (res.error) return res;
+    const batch = res.data ?? [];
+    all = all.concat(batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
 export async function getCustomerAccountDetail(
   customerId: string,
   options?: { forceRefresh?: boolean }
@@ -208,38 +230,50 @@ export async function getCustomerAccountDetail(
           .select('id, customer_id, amount, as_of_date, note, status, cancelled_at, cancel_reason, created_at')
           .eq('customer_id', customerId)
           .order('created_at', { ascending: false }),
-        supabase
-          .from('bill_balances')
-          .select(
-            'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, total_returned, net_subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
-          )
-          .eq('customer_id', customerId)
-          .order('bill_date', { ascending: false })
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('customer_payments')
-          .select(
-            'id, customer_id, customer_name_snapshot, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, customer_payment_allocations(id, customer_payment_id, bill_id, opening_balance_id, amount, status, refund_id, reversed_at, reversal_reason, bills(bill_no, bill_date), customer_opening_balances(as_of_date))'
-          )
-          .eq('customer_id', customerId)
-          .order('payment_date', { ascending: false })
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('customer_refunds')
-          .select(
-            'id, bill_id, customer_id, customer_name_snapshot, amount, mode, refund_date, note, created_at, bills(bill_no)'
-          )
-          .eq('customer_id', customerId)
-          .order('refund_date', { ascending: false })
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('bill_returns')
-          .select(
-            'id, bill_id, return_no, customer_id, customer_name_snapshot, return_date, total_boxes, total_amount, refund_amount, refund_mode, refund_id, reason, created_at, bills(bill_no)'
-          )
-          .eq('customer_id', customerId)
-          .order('return_date', { ascending: false })
-          .order('created_at', { ascending: false }),
+        fetchAllPages<BillBalance>((from, to) =>
+          supabase
+            .from('bill_balances')
+            .select(
+              'bill_id, bill_no, customer_id, is_cash_customer, customer_name_snapshot, bill_date, subtotal, total_returned, net_subtotal, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+            )
+            .eq('customer_id', customerId)
+            .order('bill_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        ),
+        fetchAllPages<RawCustomerPaymentRow>((from, to) =>
+          supabase
+            .from('customer_payments')
+            .select(
+              'id, customer_id, customer_name_snapshot, payment_origin, amount, mode, payment_date, note, status, cancelled_at, cancel_reason, created_at, customer_payment_allocations(id, customer_payment_id, bill_id, opening_balance_id, amount, status, refund_id, reversed_at, reversal_reason, bills(bill_no, bill_date), customer_opening_balances(as_of_date))'
+            )
+            .eq('customer_id', customerId)
+            .order('payment_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        ),
+        fetchAllPages<RawCustomerRefundRow>((from, to) =>
+          supabase
+            .from('customer_refunds')
+            .select(
+              'id, bill_id, customer_id, customer_name_snapshot, amount, mode, refund_date, note, created_at, bills(bill_no)'
+            )
+            .eq('customer_id', customerId)
+            .order('refund_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        ),
+        fetchAllPages<RawCustomerReturnRow>((from, to) =>
+          supabase
+            .from('bill_returns')
+            .select(
+              'id, bill_id, return_no, customer_id, customer_name_snapshot, return_date, total_boxes, total_amount, refund_amount, refund_mode, refund_id, reason, created_at, bills(bill_no)'
+            )
+            .eq('customer_id', customerId)
+            .order('return_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        ),
       ]);
 
       if (balRes.error) throw formatAccountsError(balRes.error, 'Could not load customer account.');
