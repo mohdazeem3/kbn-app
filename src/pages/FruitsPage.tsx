@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronRight, Pencil, Plus, Power, Search } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Pencil, Plus, Search } from 'lucide-react';
 import {
   AlertBanner,
   Badge,
   Button,
-  Card,
   EmptyState,
   LoadingCard,
   SectionHeader,
@@ -19,8 +18,6 @@ import {
   createFruitVariety,
   listFruits,
   listFruitVarieties,
-  setFruitActive,
-  setFruitVarietyActive,
   updateFruit,
   updateFruitVariety,
 } from '@/services/masterData';
@@ -34,7 +31,6 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
@@ -147,25 +143,6 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
     }
   };
 
-  const handleToggleFruit = async (fruit: Fruit) => {
-    setActionError(null);
-    setNotice(null);
-    setBusyId(fruit.id);
-    try {
-      const updated = await setFruitActive(fruit.id, !fruit.active);
-      setFruits((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-      setNotice(
-        updated.active
-          ? `Activated "${updated.name}".`
-          : `Deactivated "${updated.name}".`
-      );
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not update fruit status.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const handleSaveVariety = async (input: FruitVarietyInput) => {
     setActionError(null);
     setNotice(null);
@@ -182,25 +159,6 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
     }
   };
 
-  const handleToggleVariety = async (variety: FruitVariety) => {
-    setActionError(null);
-    setNotice(null);
-    setBusyId(variety.id);
-    try {
-      const updated = await setFruitVarietyActive(variety.id, !variety.active);
-      setVarieties((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
-      setNotice(
-        updated.active
-          ? `Activated "${updated.name}".`
-          : `Deactivated "${updated.name}".`
-      );
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not update variety status.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {notice && <AlertBanner tone="success" message={notice} />}
@@ -211,7 +169,7 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
         <LoadingCard label="Loading fruits and varieties…" />
       ) : selectedFruit ? (
         /* ================================================================= */
-        /* 2. SELECTED FRUIT SCREEN                                          */
+        /* 2. SELECTED FRUIT SCREEN (Varieties Listing)                      */
         /* ================================================================= */
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -236,48 +194,39 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
           </div>
 
           {/* Fruit detail & management card */}
-          <Card className="p-6 sm:p-7">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-leaf-950">
-                  {selectedFruit.name}
-                </h1>
-                <Badge tone={selectedFruit.active ? 'green' : 'neutral'}>
-                  {selectedFruit.active ? 'Active' : 'Inactive'}
-                </Badge>
-                <span className="text-base font-semibold text-leaf-600">
-                  {selectedFruitVarieties.length}{' '}
-                  {selectedFruitVarieties.length === 1 ? 'variety' : 'varieties'}
-                </span>
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 sm:p-6 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 font-bold text-lg sm:text-xl border border-emerald-200/60 shadow-xs">
+                {selectedFruit.name.trim().charAt(0).toUpperCase()}
               </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  icon={Pencil}
-                  onClick={() => openEditFruit(selectedFruit)}
-                >
-                  Edit Fruit
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  icon={Power}
-                  disabled={busyId === selectedFruit.id}
-                  onClick={() => void handleToggleFruit(selectedFruit)}
-                >
-                  {busyId === selectedFruit.id
-                    ? 'Updating…'
-                    : selectedFruit.active
-                    ? 'Deactivate'
-                    : 'Activate'}
-                </Button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-leaf-950 truncate">
+                    {selectedFruit.name}
+                  </h1>
+                  <Badge tone={selectedFruit.active ? 'green' : 'neutral'}>
+                    {selectedFruit.active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs sm:text-sm font-medium text-stone-500">
+                  {selectedFruitVarieties.length}{' '}
+                  {selectedFruitVarieties.length === 1 ? 'variety' : 'varieties'} registered
+                </p>
               </div>
             </div>
-          </Card>
 
-          {/* Varieties Cards Grid or Empty State */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                icon={Pencil}
+                onClick={() => openEditFruit(selectedFruit)}
+              >
+                Edit Fruit
+              </Button>
+            </div>
+          </div>
+
+          {/* Varieties Horizontal Row List (Mobile Contact Style) */}
           {selectedFruitVarieties.length === 0 ? (
             <EmptyState
               emoji="📦"
@@ -296,55 +245,74 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
               }
             />
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex flex-col gap-2.5">
               {selectedFruitVarieties.map((variety) => {
-                const varBusy = busyId === variety.id;
+                const initial = variety.name.trim().charAt(0).toUpperCase() || 'V';
+                const hasRate =
+                  variety.default_sell_rate !== null && Number(variety.default_sell_rate) > 0;
+
                 return (
-                  <Card key={variety.id} className="flex flex-col justify-between p-6 sm:p-7">
-                    <div>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <h2 className="font-display text-2xl font-bold text-leaf-950">
-                          {variety.name}
-                        </h2>
-                        <Badge tone={variety.active ? 'green' : 'neutral'}>
-                          {variety.active ? 'Active' : 'Inactive'}
-                        </Badge>
+                  <div
+                    key={variety.id}
+                    className="group relative flex items-center justify-between gap-4 rounded-xl border border-stone-200/90 bg-white px-4 py-3 sm:px-5 sm:py-3.5 shadow-sm transition-all duration-150 hover:border-leaf-300 hover:bg-stone-50/70 hover:shadow"
+                  >
+                    {/* Left: Avatar initial + Variety Name + Parent Fruit Badge + Subtitle */}
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 font-bold text-sm sm:text-base border border-amber-200/60 shadow-xs">
+                        {initial}
                       </div>
-
-                      <div className="mt-4 rounded-xl bg-cream-100 p-4">
-                        <p className="text-xs font-bold uppercase tracking-wider text-leaf-600">
-                          Default Selling Rate
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-base sm:text-lg font-bold text-leaf-950 truncate">
+                            {variety.name}
+                          </h2>
+                          <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/60 rounded px-1.5 py-0.5">
+                            {selectedFruit.name}
+                          </span>
+                          {!variety.active && (
+                            <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs sm:text-sm font-medium text-stone-500">
+                          Grade / Variety of {selectedFruit.name}
                         </p>
-                        <p className="tabular-nums mt-1 text-2xl font-extrabold text-leaf-950">
-                          {variety.default_sell_rate !== null
-                            ? `₹${Number(variety.default_sell_rate).toLocaleString('en-IN')} / box`
+                      </div>
+                    </div>
+
+                    {/* Right: Default Selling Rate + Edit Button */}
+                    <div className="flex items-center gap-3 sm:gap-4 shrink-0 text-right">
+                      <div>
+                        <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-stone-400">
+                          Selling Rate
+                        </p>
+                        <p
+                          className={`tabular-nums text-base sm:text-xl font-extrabold ${
+                            hasRate ? 'text-leaf-950' : 'text-stone-400 text-sm font-medium'
+                          }`}
+                        >
+                          {hasRate
+                            ? `₹${Number(variety.default_sell_rate).toLocaleString('en-IN')}`
                             : 'Not set'}
+                          {hasRate && (
+                            <span className="text-xs font-semibold text-stone-500"> / box</span>
+                          )}
                         </p>
                       </div>
-                    </div>
 
-                    <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-leaf-100 pt-4">
-                      <Button
-                        variant="secondary"
-                        icon={Pencil}
+                      {/* Edit button */}
+                      <button
+                        type="button"
                         onClick={() => openEditVariety(variety)}
+                        className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-leaf-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500"
+                        title="Edit variety"
+                        aria-label={`Edit ${variety.name}`}
                       >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        icon={Power}
-                        disabled={varBusy}
-                        onClick={() => void handleToggleVariety(variety)}
-                      >
-                        {varBusy
-                          ? 'Updating…'
-                          : variety.active
-                          ? 'Deactivate'
-                          : 'Activate'}
-                      </Button>
+                        <Pencil className="h-4 w-4" />
+                      </button>
                     </div>
-                  </Card>
+                  </div>
                 );
               })}
             </div>
@@ -366,7 +334,7 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
         />
       ) : (
         /* ================================================================= */
-        /* 1. MAIN FRUITS SCREEN (Fruit Catalogue Cards)                     */
+        /* 1. MAIN FRUITS SCREEN (Fruit Catalogue List)                      */
         /* ================================================================= */
         <div className="space-y-6">
           <SectionHeader
@@ -396,6 +364,7 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
             <StatusFilter value={statusFilter} onChange={setStatusFilter} counts={counts} />
           </div>
 
+          {/* Fruits Horizontal Row List (Mobile Contact Style) */}
           {filteredFruits.length === 0 ? (
             <EmptyState
               emoji="🔎"
@@ -403,9 +372,11 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
               description="Try changing your search text or filter."
             />
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex flex-col gap-2.5">
               {filteredFruits.map((fruit) => {
                 const fruitVars = varietiesByFruit.get(fruit.id) ?? [];
+                const initial = fruit.name.trim().charAt(0).toUpperCase() || 'F';
+
                 return (
                   <div
                     key={fruit.id}
@@ -418,27 +389,63 @@ export function FruitsPage({ isActive = true }: { isActive?: boolean } = {}) {
                         setSelectedFruitId(fruit.id);
                       }
                     }}
-                    className="group flex flex-col justify-between rounded-2xl border-2 border-leaf-200 bg-white p-6 sm:p-7 shadow-card transition-all duration-150 hover:border-leaf-500 hover:shadow-lifted cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-leaf-500"
+                    className="group relative flex items-center justify-between gap-4 rounded-xl border border-stone-200/90 bg-white px-4 py-3 sm:px-5 sm:py-3.5 shadow-sm transition-all duration-150 hover:border-leaf-300 hover:bg-stone-50/70 hover:shadow cursor-pointer"
                   >
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <h2 className="font-display text-2xl sm:text-3xl font-bold text-leaf-950 transition-colors group-hover:text-leaf-800">
-                          {fruit.name}
-                        </h2>
-                        <Badge tone={fruit.active ? 'green' : 'neutral'}>
-                          {fruit.active ? 'Active' : 'Inactive'}
-                        </Badge>
+                    {/* Left: Avatar initial + Name + Variety summary */}
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 font-bold text-sm sm:text-base border border-emerald-200/60 shadow-xs">
+                        {initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-base sm:text-lg font-bold text-leaf-950 truncate group-hover:text-leaf-800 transition-colors">
+                            {fruit.name}
+                          </h2>
+                          {!fruit.active && (
+                            <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs sm:text-sm font-medium text-stone-500 truncate">
+                          {fruitVars.length} {fruitVars.length === 1 ? 'variety' : 'varieties'}
+                          {fruitVars.length > 0 && (
+                            <span className="text-stone-400">
+                              {' '}• {fruitVars.map((v) => v.name).slice(0, 4).join(', ')}
+                              {fruitVars.length > 4 ? '…' : ''}
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="mt-6 flex items-center justify-between border-t border-leaf-100 pt-4">
-                      <span className="text-base font-semibold text-leaf-700">
-                        {fruitVars.length} {fruitVars.length === 1 ? 'variety' : 'varieties'}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-sm font-bold text-leaf-600 transition-colors group-hover:text-leaf-900">
-                        View Varieties
-                        <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden />
-                      </span>
+                    {/* Right: Varieties Count + Edit + Chevron */}
+                    <div className="flex items-center gap-3 sm:gap-4 shrink-0 text-right">
+                      <div>
+                        <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-stone-400">
+                          Varieties
+                        </p>
+                        <p className="tabular-nums text-base sm:text-xl font-extrabold text-leaf-950">
+                          {fruitVars.length}
+                        </p>
+                      </div>
+
+                      {/* Edit button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditFruit(fruit);
+                        }}
+                        className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-leaf-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500"
+                        title="Edit fruit"
+                        aria-label={`Edit ${fruit.name}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+
+                      {/* Forward chevron */}
+                      <ChevronRight className="h-4 w-4 text-stone-300 group-hover:text-leaf-600 transition-transform group-hover:translate-x-0.5 shrink-0" />
                     </div>
                   </div>
                 );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Pencil, Phone, Power, Search, UserPlus, Users } from 'lucide-react';
+import { ChevronRight, Pencil, Phone, Search, UserPlus, Users } from 'lucide-react';
 import {
   AlertBanner,
   Badge,
@@ -17,7 +17,6 @@ import { CustomerAccountView } from '@/components/accounts/CustomerAccountView';
 import { listCustomerBalances } from '@/services/accounts';
 import {
   createCustomer,
-  setCustomerActive,
   updateCustomer,
 } from '@/services/masterData';
 import { useCacheInvalidation } from '@/services/cache';
@@ -40,7 +39,6 @@ export function CustomersPage({ isActive = true }: { isActive?: boolean } = {}) 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
@@ -148,29 +146,6 @@ export function CustomersPage({ isActive = true }: { isActive?: boolean } = {}) 
     }
   };
 
-  const handleToggleActive = async (customer: CustomerBalance) => {
-    setActionError(null);
-    setNotice(null);
-    setBusyId(customer.customer_id);
-    try {
-      const updated = await setCustomerActive(customer.customer_id, !customer.active);
-      setCustomers((prev) =>
-        prev.map((c) =>
-          c.customer_id === updated.id ? { ...c, active: updated.active } : c
-        )
-      );
-      setNotice(
-        updated.active
-          ? `Activated "${updated.name}".`
-          : `Deactivated "${updated.name}".`
-      );
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not update customer status.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   if (selectedCustomerId) {
     return (
       <CustomerAccountView
@@ -269,7 +244,7 @@ export function CustomersPage({ isActive = true }: { isActive?: boolean } = {}) 
             />
           </div>
 
-          {/* Customer Cards Grid */}
+          {/* Customer Horizontal Row List (Mobile Contact Style) */}
           {filteredCustomers.length === 0 ? (
             <EmptyState
               emoji="🔎"
@@ -277,89 +252,87 @@ export function CustomersPage({ isActive = true }: { isActive?: boolean } = {}) 
               description="Try clearing the search box or adjusting the status and due filters."
             />
           ) : (
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="flex flex-col gap-2.5">
               {filteredCustomers.map((customer) => {
-                const isBusy = busyId === customer.customer_id;
                 const hasDue = customer.outstanding_balance > 0;
+                const initial = customer.name.trim().charAt(0).toUpperCase() || 'C';
+
                 return (
-                  <Card
+                  <div
                     key={customer.customer_id}
-                    className="flex flex-col justify-between gap-5 p-6 sm:p-7"
+                    onClick={() => setSelectedCustomerId(customer.customer_id)}
+                    className="group relative flex items-center justify-between gap-4 rounded-xl border border-stone-200/90 bg-white px-4 py-3 sm:px-5 sm:py-3.5 shadow-sm transition-all duration-150 hover:border-leaf-300 hover:bg-stone-50/70 hover:shadow cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedCustomerId(customer.customer_id);
+                      }
+                    }}
                   >
-                    <div className="space-y-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h2 className="text-2xl font-bold text-leaf-950">{customer.name}</h2>
+                    {/* Left: Contact Avatar initial + Name + Phone */}
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-leaf-100 text-leaf-800 font-bold text-sm sm:text-base border border-leaf-200/60 shadow-xs">
+                        {initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-base sm:text-lg font-bold text-leaf-950 truncate group-hover:text-leaf-800 transition-colors">
+                            {customer.name}
+                          </h2>
+                          {!customer.active && (
+                            <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-xs sm:text-sm font-medium text-stone-500">
                           {customer.phone ? (
-                            <p className="mt-1 inline-flex items-center gap-1.5 text-base font-semibold text-leaf-700">
-                              <Phone className="h-4 w-4 text-leaf-500" aria-hidden />
-                              {customer.phone}
-                            </p>
+                            <>
+                              <Phone className="h-3.5 w-3.5 text-stone-400 shrink-0" aria-hidden />
+                              <span className="font-mono">{customer.phone}</span>
+                            </>
                           ) : (
-                            <p className="mt-1 text-sm text-leaf-400">No phone number</p>
+                            <span className="text-stone-400 italic">No phone</span>
                           )}
-                        </div>
-                        <Badge tone={customer.active ? 'green' : 'neutral'}>
-                          {customer.active ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </div>
-
-                      <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl bg-cream-100 p-4 sm:p-5">
-                        <div>
-                          <p className="text-xs sm:text-sm font-bold uppercase tracking-wider text-leaf-600">
-                            Outstanding Due
-                          </p>
-                          <p
-                            className={`tabular-nums mt-1 font-display text-3xl sm:text-4xl font-extrabold ${
-                              hasDue ? 'text-mango-700' : 'text-leaf-800'
-                            }`}
-                          >
-                            ₹{customer.outstanding_balance.toLocaleString('en-IN')}
-                          </p>
-                        </div>
-                        <div className="text-right text-sm font-semibold text-leaf-700">
-                          <p>
-                            {customer.active_bills_count} active bill
-                            {customer.active_bills_count === 1 ? '' : 's'}
-                          </p>
-                          {customer.opening_balance_outstanding > 0 && (
-                            <p className="text-mango-700">
-                              Incl. ₹{customer.opening_balance_outstanding.toLocaleString('en-IN')} opening
-                            </p>
-                          )}
-                        </div>
+                        </p>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-leaf-100 pt-4">
-                      <Button
-                        size="lg"
-                        variant={hasDue ? 'primary' : 'secondary'}
-                        icon={BookOpen}
-                        onClick={() => setSelectedCustomerId(customer.customer_id)}
+                    {/* Right: Outstanding Due + Edit + Chevron */}
+                    <div className="flex items-center gap-3 sm:gap-4 shrink-0 text-right">
+                      <div>
+                        <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-stone-400">
+                          Due
+                        </p>
+                        <p
+                          className={`tabular-nums text-base sm:text-xl font-extrabold ${
+                            hasDue ? 'text-mango-700' : 'text-leaf-800'
+                          }`}
+                        >
+                          ₹{customer.outstanding_balance.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+
+                      {/* Edit button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(customer);
+                        }}
+                        className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-leaf-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500"
+                        title="Edit customer"
+                        aria-label={`Edit ${customer.name}`}
                       >
-                        Open Account
-                      </Button>
+                        <Pencil className="h-4 w-4" />
+                      </button>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          icon={Pencil}
-                          onClick={() => openEdit(customer)}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          icon={Power}
-                          disabled={isBusy}
-                          onClick={() => void handleToggleActive(customer)}
-                        >
-                          {isBusy ? 'Updating…' : customer.active ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </div>
+                      {/* Forward chevron */}
+                      <ChevronRight className="h-4 w-4 text-stone-300 group-hover:text-leaf-600 transition-transform group-hover:translate-x-0.5 shrink-0" />
                     </div>
-                  </Card>
+                  </div>
                 );
               })}
             </div>

@@ -1037,10 +1037,10 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                   <th className="py-2 px-2.5 text-center w-10 rounded-tl-xl">#</th>
                   <th className="py-2 px-2.5 min-w-[160px]">Fruit Category *</th>
                   <th className="py-2 px-2.5 min-w-[180px]">Variety / Grade *</th>
-                  <th className="py-2 px-2.5 w-28 text-right">Selling Rate *</th>
                   <th className="py-2 px-2.5 min-w-[260px]">
                     Available Stock &amp; Batch Allocation *
                   </th>
+                  <th className="py-2 px-2.5 w-28 text-right">Selling Rate *</th>
                   <th className="py-2 px-2.5 w-24 text-center">Allocated</th>
                   <th className="py-2 px-2.5 w-28 text-right">Line Total</th>
                   <th className="py-2 px-2 text-center w-10 rounded-tr-xl"></th>
@@ -1093,21 +1093,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                         />
                       </td>
 
-                      {/* 4. Selling Rate / Box */}
-                      <td className="py-1 px-2.5">
-                        <MoneyInput
-                          compact
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          className="font-bold text-right"
-                          value={line.sellRate}
-                          onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
-                          disabled={saving}
-                        />
-                      </td>
-
-                      {/* 5. Available Stock & Batch Allocation (Single-Row Inline Integration) */}
+                      {/* 4. Available Stock & Batch Allocation (Single-Row Inline Integration) */}
                       <td className="py-1 px-2.5">
                         {!line.fruitId || !line.varietyId ? (
                           <span className="text-2xs text-stone-400 italic">
@@ -1193,6 +1179,20 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                             })}
                           </div>
                         )}
+                      </td>
+
+                      {/* 5. Selling Rate / Box */}
+                      <td className="py-1 px-2.5">
+                        <MoneyInput
+                          compact
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          className="font-bold text-right"
+                          value={line.sellRate}
+                          onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
+                          disabled={saving}
+                        />
                       </td>
 
                       {/* 6. Allocated Boxes */}
@@ -1296,21 +1296,6 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                     />
                   </div>
 
-                  <div>
-                    <span className="mb-1 block text-xs font-bold text-leaf-900">
-                      Selling Rate / Box
-                    </span>
-                    <MoneyInput
-                      compact
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={line.sellRate}
-                      onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
-                      disabled={saving}
-                    />
-                  </div>
-
                   {/* Batch Allocation */}
                   {line.fruitId && line.varietyId && (
                     <div className="space-y-1.5 pt-1 border-t border-leaf-100">
@@ -1399,6 +1384,21 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                       )}
                     </div>
                   )}
+
+                  <div>
+                    <span className="mb-1 block text-xs font-bold text-leaf-900">
+                      Selling Rate / Box
+                    </span>
+                    <MoneyInput
+                      compact
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={line.sellRate}
+                      onChange={(e) => updateLine(line.key, { sellRate: e.target.value })}
+                      disabled={saving}
+                    />
+                  </div>
 
                   {/* Line Total */}
                   <div className="flex items-center justify-between rounded-lg bg-cream-100 px-3 py-1.5 text-xs">
