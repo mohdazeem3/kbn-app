@@ -1038,7 +1038,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                   <th className="py-2 px-2.5 min-w-[160px]">Fruit Category *</th>
                   <th className="py-2 px-2.5 min-w-[180px]">Variety / Grade *</th>
                   <th className="py-2 px-2.5 min-w-[260px]">
-                    Available Stock &amp; Batch Allocation *
+                    Quantity *
                   </th>
                   <th className="py-2 px-2.5 w-28 text-right">Selling Rate *</th>
                   <th className="py-2 px-2.5 w-24 text-center">Allocated</th>
@@ -1093,7 +1093,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                         />
                       </td>
 
-                      {/* 4. Available Stock & Batch Allocation (Single-Row Inline Integration) */}
+                      {/* 4. Quantity (Single-Row Inline Integration) */}
                       <td className="py-1 px-2.5">
                         {!line.fruitId || !line.varietyId ? (
                           <span className="text-2xs text-stone-400 italic">
