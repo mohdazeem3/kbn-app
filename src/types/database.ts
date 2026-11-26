@@ -240,6 +240,17 @@ export interface CancelBillInput {
   refund_note: string | null;
 }
 
+export interface CustomerBillItemRecord {
+  id: string;
+  bill_id: string;
+  line_no: number;
+  fruit_name_snapshot: string;
+  variety_name_snapshot: string;
+  boxes: number;
+  sell_rate: number;
+  line_total: number;
+}
+
 export interface BillBalance {
   bill_id: string;
   bill_no: string;
@@ -258,6 +269,7 @@ export interface BillBalance {
   cancel_reason: string | null;
   note: string | null;
   created_at: string;
+  items?: CustomerBillItemRecord[];
 }
 
 export interface BillBatchAllocationDetail {
@@ -604,7 +616,87 @@ export interface DashboardOverview {
   total_supplier_dues: number;
 }
 
+export interface DashboardCollectionsBreakdown {
+  cash_from_today_bills: number;
+  cash_from_old_dues: number;
+  cash_unclassified: number;
+  upi_from_today_bills: number;
+  upi_from_old_dues: number;
+  upi_unclassified: number;
+  total_unclassified: number;
+}
+
 export interface DashboardData {
   overview: DashboardOverview;
+  collectionsBreakdown?: DashboardCollectionsBreakdown;
   latestBills: BillBalance[];
+}
+
+// ----------------------------------------------------------------------------
+// Expenses Module
+// ----------------------------------------------------------------------------
+
+export type ExpenseCategory =
+  | 'Transport'
+  | 'Labour'
+  | 'Market Charges'
+  | 'Shop Expenses'
+  | 'Food & Refreshments'
+  | 'Packing Materials'
+  | 'Other';
+
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  'Transport',
+  'Labour',
+  'Market Charges',
+  'Shop Expenses',
+  'Food & Refreshments',
+  'Packing Materials',
+  'Other',
+];
+
+export type ExpensePaymentMethod = 'cash' | 'upi';
+
+export interface ExpenseRecord {
+  id: string;
+  expense_date: string;
+  category: ExpenseCategory;
+  custom_category: string | null;
+  amount: number;
+  payment_method: ExpensePaymentMethod;
+  paid_to: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+export interface CreateExpenseInput {
+  expense_date: string;
+  category: ExpenseCategory;
+  custom_category?: string | null;
+  amount: number;
+  payment_method: ExpensePaymentMethod;
+  paid_to?: string | null;
+  description?: string | null;
+}
+
+export interface UpdateExpenseInput {
+  id: string;
+  expense_date: string;
+  category: ExpenseCategory;
+  custom_category?: string | null;
+  amount: number;
+  payment_method: ExpensePaymentMethod;
+  paid_to?: string | null;
+  description?: string | null;
+}
+
+export interface ExpenseSummary {
+  today_expenses: number;
+  month_expenses: number;
+  total_expenses: number;
+  cash_expenses: number;
+  upi_expenses: number;
+  category_totals: Record<string, number>;
 }

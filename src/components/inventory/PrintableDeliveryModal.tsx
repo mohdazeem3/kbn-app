@@ -190,7 +190,7 @@ export function PrintableDeliveryModal({
                     T/B 43, ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092
                   </p>
                   <p className="text-[10px] font-semibold text-black">
-                    Phone: +91 98765 43210
+                    Phone: +91-6383842405
                   </p>
                 </div>
 

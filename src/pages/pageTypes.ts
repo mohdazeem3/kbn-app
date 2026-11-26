@@ -3,6 +3,7 @@ export type Page =
   | 'receive'
   | 'sale'
   | 'bills'
+  | 'expenses'
   | 'stock'
   | 'fruits'
   | 'customers'
@@ -13,6 +14,7 @@ export const pageTitles: Record<Page, string> = {
   receive: 'Receive Stock',
   sale: 'New Sale',
   bills: 'Sales History',
+  expenses: 'Expenses',
   stock: 'Stock',
   fruits: 'Fruits & Varieties',
   customers: 'Customers',

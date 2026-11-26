@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Sprout,
   Truck,
+  Wallet,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
   { id: 'receive', label: 'Receive Stock', icon: PackageOpen, desc: 'Record new arrivals' },
   { id: 'sale', label: 'New Sale', icon: ShoppingCart, desc: 'Bill a customer' },
   { id: 'bills', label: 'Sales History', icon: ReceiptText, desc: 'Past bills & receipts' },
+  { id: 'expenses', label: 'Expenses', icon: Wallet, desc: 'Shop & operational costs' },
   { id: 'stock', label: 'Stock', icon: Boxes, desc: 'What is in the godown' },
   { id: 'fruits', label: 'Fruits & Varieties', icon: Apple, desc: 'Categories & grades' },
   { id: 'customers', label: 'Customers', icon: BookUser, desc: 'Shops you supply' },

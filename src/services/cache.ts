@@ -31,6 +31,7 @@ export const TTL = {
   BILLS: 30 * 1000,               // 30 seconds for sales bills
   LEDGER: 30 * 1000,              // 30 seconds for account ledger views
   DASHBOARD: 15 * 1000,           // 15 seconds for dashboard summary
+  EXPENSES: 30 * 1000,            // 30 seconds for expenses
 };
 
 class DataCacheManager {

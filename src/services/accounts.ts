@@ -13,6 +13,7 @@ import type {
   CancelDeliveryInput,
   CustomerAccountDetail,
   CustomerBalance,
+  CustomerBillItemRecord,
   CustomerOpeningBalance,
   CustomerPaymentAllocationItem,
   CustomerPaymentRecord,
@@ -290,13 +291,91 @@ export async function getCustomerAccountDetail(
         (obRes.data ?? []) as CustomerOpeningBalance[]
       ).map((o) => ({ ...o, amount: Number(o.amount) }));
 
-      const bills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
+      // Fetch bill items for customer's bills
+      const rawBills = ((billsRes.data ?? []) as BillBalance[]);
+      const billIds = rawBills.map((b) => b.bill_id);
+      let billItems: CustomerBillItemRecord[] = [];
+
+      if (billIds.length > 0) {
+        try {
+          const { data: itemData, error: itemError } = await supabase
+            .from('bill_items')
+            .select(
+              'id, bill_id, line_no, fruit_name_snapshot, variety_name_snapshot, boxes, sell_rate, line_total, bills!inner(customer_id)'
+            )
+            .eq('bills.customer_id', customerId)
+            .order('line_no', { ascending: true });
+
+          if (!itemError && itemData) {
+            billItems = (itemData as unknown as Array<{
+              id: string;
+              bill_id: string;
+              line_no: number;
+              fruit_name_snapshot: string;
+              variety_name_snapshot: string;
+              boxes: number;
+              sell_rate: number;
+              line_total: number;
+            }>).map((i) => ({
+              id: i.id,
+              bill_id: i.bill_id,
+              line_no: Number(i.line_no),
+              fruit_name_snapshot: i.fruit_name_snapshot,
+              variety_name_snapshot: i.variety_name_snapshot,
+              boxes: Number(i.boxes),
+              sell_rate: Number(i.sell_rate),
+              line_total: Number(i.line_total),
+            }));
+          }
+        } catch {
+          // fallback below
+        }
+
+        if (billItems.length === 0) {
+          const chunkSize = 100;
+          for (let i = 0; i < billIds.length; i += chunkSize) {
+            const chunk = billIds.slice(i, i + chunkSize);
+            const { data: chunkData } = await supabase
+              .from('bill_items')
+              .select(
+                'id, bill_id, line_no, fruit_name_snapshot, variety_name_snapshot, boxes, sell_rate, line_total'
+              )
+              .in('bill_id', chunk)
+              .order('line_no', { ascending: true });
+
+            if (chunkData) {
+              billItems.push(
+                ...chunkData.map((i) => ({
+                  id: i.id,
+                  bill_id: i.bill_id,
+                  line_no: Number(i.line_no),
+                  fruit_name_snapshot: i.fruit_name_snapshot,
+                  variety_name_snapshot: i.variety_name_snapshot,
+                  boxes: Number(i.boxes),
+                  sell_rate: Number(i.sell_rate),
+                  line_total: Number(i.line_total),
+                }))
+              );
+            }
+          }
+        }
+      }
+
+      const itemsByBillId = new Map<string, CustomerBillItemRecord[]>();
+      for (const item of billItems) {
+        const existing = itemsByBillId.get(item.bill_id) || [];
+        existing.push(item);
+        itemsByBillId.set(item.bill_id, existing);
+      }
+
+      const bills: BillBalance[] = rawBills.map((b) => ({
         ...b,
         subtotal: Number(b.subtotal),
         total_returned: b.total_returned ? Number(b.total_returned) : 0,
         net_subtotal: b.net_subtotal ? Number(b.net_subtotal) : Number(b.subtotal),
         amount_paid: Number(b.amount_paid),
         outstanding_amount: Number(b.outstanding_amount),
+        items: itemsByBillId.get(b.bill_id) || [],
       }));
 
       const payments: CustomerPaymentRecord[] = ((payRes.data ?? []) as RawCustomerPaymentRow[]).map(

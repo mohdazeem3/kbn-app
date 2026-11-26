@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Dashboard } from '@/pages/Dashboard';
 import { NewSale } from '@/pages/NewSale';
 import { BillsPage } from '@/pages/BillsPage';
+import { ExpensesPage } from '@/pages/ExpensesPage';
 import { ReceiveStock } from '@/pages/ReceiveStock';
 import { StockPage } from '@/pages/StockPage';
 import { FruitsPage } from '@/pages/FruitsPage';
@@ -66,6 +67,11 @@ function AppPages() {
       {visited.has('bills') && (
         <div className={page === 'bills' ? undefined : 'hidden'} aria-hidden={page !== 'bills'}>
           <BillsPage onNavigate={handleNavigate} isActive={page === 'bills'} />
+        </div>
+      )}
+      {visited.has('expenses') && (
+        <div className={page === 'expenses' ? undefined : 'hidden'} aria-hidden={page !== 'expenses'}>
+          <ExpensesPage isActive={page === 'expenses'} />
         </div>
       )}
       {visited.has('stock') && (

@@ -141,7 +141,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
   const [billNote, setBillNote] = useState('');
   const [lines, setLines] = useState<SaleLine[]>([createEmptySaleLine()]);
 
-  const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('cash');
+  const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('credit');
   const [paidCash, setPaidCash] = useState('');
   const [paidUpi, setPaidUpi] = useState('');
 
@@ -482,13 +482,15 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
     if (next === 'cash_customer') {
       setCustomerId(null);
       setCustomerPhone('');
-      if (paymentChoice === 'credit') {
-        setPaymentChoice('cash');
-      }
-      if (subtotal > 0) {
-        setPaidCash(String(subtotal));
-        setPaidUpi('');
-      }
+      setPaymentChoice('cash');
+      setPaidCash(subtotal > 0 ? String(subtotal) : '');
+      setPaidUpi('');
+    } else {
+      setCustomerId(null);
+      setCustomerPhone('');
+      setPaymentChoice('credit');
+      setPaidCash('');
+      setPaidUpi('');
     }
   };
 
@@ -497,10 +499,16 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
     setFormError(null);
     if (!id) {
       setCustomerPhone('');
+      setPaymentChoice('credit');
+      setPaidCash('');
+      setPaidUpi('');
       return;
     }
     const cust = customers.find((c) => c.id === id);
     setCustomerPhone(cust?.phone ?? '');
+    setPaymentChoice('credit');
+    setPaidCash('');
+    setPaidUpi('');
   };
 
   const validateAndBuildPayload = () => {
@@ -629,11 +637,13 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
         paymentChoice: currentPaymentChoice,
       });
 
+      setCustomerId(null);
+      setCustomerPhone('');
       setLines([createEmptySaleLine()]);
+      setPaymentChoice(buyerKind === 'cash_customer' ? 'cash' : 'credit');
       setPaidCash('');
       setPaidUpi('');
       setBillNote('');
-      setCustomerPhone('');
       setIdempotencyKey(generateIdempotencyKey());
 
       // If "Save & Print" was triggered, open the print modal immediately
@@ -1123,7 +1133,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                               return (
                                 <div
                                   key={batch.batch_id}
-                                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs transition-colors ${
+                                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors ${
                                     exceeds || invalidInt
                                       ? 'border-red-300 bg-red-50 text-red-900'
                                       : safeThisLine > 0
@@ -1132,7 +1142,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                                   }`}
                                 >
                                   <span className="font-extrabold">{batch.delivery_no}</span>
-                                  <span className="text-leaf-600 text-[10px]">
+                                  <span className="text-leaf-600 text-xs">
                                     ({maxForThisLine} left)
                                   </span>
                                   <input
@@ -1152,25 +1162,10 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                                     }
                                     disabled={saving}
                                     aria-label={`Boxes from ${batch.delivery_no}`}
-                                    className="tabular-nums w-12 rounded border border-leaf-300 bg-white px-1 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
+                                    className="tabular-nums w-16 sm:w-20 rounded-md border border-leaf-300 bg-white px-2 py-1 text-right text-sm sm:text-base font-extrabold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
                                   />
-                                  <button
-                                    type="button"
-                                    disabled={saving || maxForThisLine === 0}
-                                    onClick={() =>
-                                      handleBatchAllocationChange(
-                                        line.key,
-                                        batch.batch_id,
-                                        String(maxForThisLine)
-                                      )
-                                    }
-                                    className="rounded bg-leaf-200 hover:bg-leaf-300 px-1 py-0.5 text-[9px] font-black uppercase text-leaf-900 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1"
-                                    title="Allocate maximum available boxes from this batch"
-                                  >
-                                    Max
-                                  </button>
                                   {(exceeds || invalidInt) && (
-                                    <span className="text-[10px] font-bold text-red-700">
+                                    <span className="text-xs font-bold text-red-700">
                                       {invalidInt ? 'Invalid' : `Max ${maxForThisLine}`}
                                     </span>
                                   )}
@@ -1327,7 +1322,7 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                             return (
                               <div
                                 key={batch.batch_id}
-                                className={`flex items-center justify-between gap-2 rounded-lg border p-2 text-2xs ${
+                                className={`flex items-center justify-between gap-3 rounded-xl border p-2.5 text-xs ${
                                   exceeds || invalidInt
                                     ? 'border-red-300 bg-red-50'
                                     : safeThisLine > 0
@@ -1336,14 +1331,14 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                                 }`}
                               >
                                 <div className="min-w-0">
-                                  <p className="font-extrabold text-leaf-950">
+                                  <p className="font-extrabold text-sm text-leaf-950">
                                     {batch.delivery_no}
                                   </p>
-                                  <p className="text-leaf-600 text-[10px]">
+                                  <p className="text-leaf-600 text-xs">
                                     {batch.supplier_name} • {maxForThisLine} avail
                                   </p>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
                                   <input
                                     type="number"
                                     inputMode="numeric"
@@ -1360,22 +1355,13 @@ export function NewSale({ onNavigate, isActive = true }: NewSaleProps) {
                                       )
                                     }
                                     disabled={saving}
-                                    className="tabular-nums w-14 rounded border border-leaf-300 bg-white px-1.5 py-0.5 text-right text-xs font-bold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
+                                    className="tabular-nums w-20 rounded-lg border border-leaf-300 bg-white px-2.5 py-1.5 text-right text-base font-extrabold text-leaf-950 focus:border-leaf-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500/30"
                                   />
-                                  <button
-                                    type="button"
-                                    disabled={saving || maxForThisLine === 0}
-                                    onClick={() =>
-                                      handleBatchAllocationChange(
-                                        line.key,
-                                        batch.batch_id,
-                                        String(maxForThisLine)
-                                      )
-                                    }
-                                    className="rounded bg-leaf-100 hover:bg-leaf-200 px-1.5 py-0.5 text-2xs font-bold text-leaf-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500 focus-visible:ring-offset-1"
-                                  >
-                                    Max
-                                  </button>
+                                  {(exceeds || invalidInt) && (
+                                    <span className="text-xs font-bold text-red-700">
+                                      {invalidInt ? 'Invalid' : `Max ${maxForThisLine}`}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             );

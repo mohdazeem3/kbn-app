@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   Banknote,
   Bell,
   Calendar,
   ChevronRight,
   Clock,
   FileText,
+  History,
   RotateCcw,
   RotateCw,
   ShoppingCart,
@@ -92,6 +94,7 @@ export function Dashboard({ onNavigate, isActive = true }: DashboardProps) {
   useCacheInvalidation(['dashboard', 'stock'], () => void loadDashboard(true), { isActive });
 
   const overview = data?.overview ?? null;
+  const breakdown = data?.collectionsBreakdown ?? null;
   const cashReceived = overview?.today_cash_received ?? 0;
   const upiReceived = overview?.today_upi_received ?? 0;
   const totalReceived = cashReceived + upiReceived;
@@ -99,6 +102,12 @@ export function Dashboard({ onNavigate, isActive = true }: DashboardProps) {
   const upiRefunded = overview?.today_upi_refunded ?? 0;
   const totalRefunds = cashRefunded + upiRefunded;
   const hasRefundsToday = totalRefunds > 0;
+
+  const cashFromTodayBills = breakdown?.cash_from_today_bills ?? 0;
+  const cashFromOldDues = breakdown?.cash_from_old_dues ?? 0;
+  const upiFromTodayBills = breakdown?.upi_from_today_bills ?? 0;
+  const upiFromOldDues = breakdown?.upi_from_old_dues ?? 0;
+  const totalUnclassified = breakdown?.total_unclassified ?? 0;
 
   // Compute low stock fruits from active stock batches
   const lowStockFruits = useMemo(() => {
@@ -338,43 +347,88 @@ export function Dashboard({ onNavigate, isActive = true }: DashboardProps) {
 
                 {/* Expanded Details */}
                 {showCollections && (
-                  <div className="mt-4 pt-4 border-t border-stone-100 grid grid-cols-3 gap-2 text-center">
-                    {/* Cash Received */}
-                    <div className="space-y-1">
-                      <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                        <Banknote className="h-4 w-4" aria-hidden />
-                      </div>
-                      <p className="text-[11px] font-semibold text-stone-500">Cash Received</p>
-                      <p className="text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
-                        ₹{cashReceived.toLocaleString('en-IN')}
-                      </p>
-                    </div>
-
-                    {/* UPI Received */}
-                    <div className="space-y-1 border-x border-stone-100 px-1">
-                      <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-                        <Smartphone className="h-4 w-4" aria-hidden />
-                      </div>
-                      <p className="text-[11px] font-semibold text-stone-500">UPI Received</p>
-                      <p className="text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
-                        ₹{upiReceived.toLocaleString('en-IN')}
-                      </p>
-                    </div>
-
-                    {/* Customer Refunds */}
-                    <div className="space-y-1">
-                      <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
-                        <RotateCcw className="h-4 w-4" aria-hidden />
-                      </div>
-                      <p className="text-[11px] font-semibold text-stone-500">Customer Refunds</p>
-                      <p className="text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
-                        ₹{totalRefunds.toLocaleString('en-IN')}
-                      </p>
-                      {hasRefundsToday && (
-                        <p className="text-[10px] font-bold text-amber-700 truncate mt-0.5">
-                          Cash ₹{cashRefunded.toLocaleString('en-IN')} • UPI ₹{upiRefunded.toLocaleString('en-IN')}
+                  <div className="mt-4 pt-4 border-t border-stone-100 space-y-3.5">
+                    {/* Primary Breakdown Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {/* 1. Cash from Today's Bills */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 flex flex-col justify-between">
+                        <div className="flex items-center gap-1.5 text-emerald-800">
+                          <Banknote className="h-4 w-4 shrink-0" aria-hidden />
+                          <p className="text-[11px] font-bold leading-tight">Cash from Today&apos;s Bills</p>
+                        </div>
+                        <p className="mt-2 text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
+                          ₹{cashFromTodayBills.toLocaleString('en-IN')}
                         </p>
-                      )}
+                        <p className="mt-0.5 text-[10px] font-medium text-emerald-700">New sales</p>
+                      </div>
+
+                      {/* 2. Cash Collected Against Old Dues */}
+                      <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-3 flex flex-col justify-between">
+                        <div className="flex items-center gap-1.5 text-sky-800">
+                          <History className="h-4 w-4 shrink-0" aria-hidden />
+                          <p className="text-[11px] font-bold leading-tight">Cash Against Old Dues</p>
+                        </div>
+                        <p className="mt-2 text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
+                          ₹{cashFromOldDues.toLocaleString('en-IN')}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium text-sky-700">Past bills &amp; opening</p>
+                      </div>
+
+                      {/* 3. UPI Received */}
+                      <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-3 flex flex-col justify-between">
+                        <div className="flex items-center gap-1.5 text-orange-700">
+                          <Smartphone className="h-4 w-4 shrink-0" aria-hidden />
+                          <p className="text-[11px] font-bold leading-tight">UPI Received</p>
+                        </div>
+                        <p className="mt-2 text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
+                          ₹{upiReceived.toLocaleString('en-IN')}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium text-stone-500 truncate">
+                          {upiFromOldDues > 0
+                            ? `₹${upiFromTodayBills.toLocaleString('en-IN')} new • ₹${upiFromOldDues.toLocaleString('en-IN')} old`
+                            : 'Online payments'}
+                        </p>
+                      </div>
+
+                      {/* 4. Customer Refunds */}
+                      <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3 flex flex-col justify-between">
+                        <div className="flex items-center gap-1.5 text-amber-800">
+                          <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
+                          <p className="text-[11px] font-bold leading-tight">Customer Refunds</p>
+                        </div>
+                        <p className="mt-2 text-base sm:text-lg font-extrabold text-leaf-950 tabular-nums">
+                          ₹{totalRefunds.toLocaleString('en-IN')}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium text-stone-500 truncate">
+                          {hasRefundsToday
+                            ? `Cash ₹${cashRefunded.toLocaleString('en-IN')} • UPI ₹${upiRefunded.toLocaleString('en-IN')}`
+                            : 'No refunds today'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Unclassified Collections Safeguard (if any unallocated payments exist) */}
+                    {totalUnclassified > 0 && (
+                      <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50/90 px-3.5 py-2 text-xs">
+                        <div className="flex items-center gap-2 text-amber-900 font-semibold">
+                          <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                          <span>Unclassified Collections</span>
+                        </div>
+                        <span className="font-extrabold tabular-nums text-amber-950">
+                          ₹{totalUnclassified.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Cash Subtotal Reconciliation Strip */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-100 text-xs">
+                      <span className="text-stone-600 font-medium">
+                        Total Cash Received: <strong className="font-bold text-leaf-950 tabular-nums">₹{cashReceived.toLocaleString('en-IN')}</strong>
+                        <span className="text-stone-400 font-normal"> (₹{cashFromTodayBills.toLocaleString('en-IN')} bills + ₹{cashFromOldDues.toLocaleString('en-IN')} old dues)</span>
+                      </span>
+                      <span className="text-stone-500 font-medium">
+                        Net Today: <strong className="font-bold text-emerald-800 tabular-nums">₹{(totalReceived - totalRefunds).toLocaleString('en-IN')}</strong>
+                      </span>
                     </div>
                   </div>
                 )}

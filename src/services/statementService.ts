@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatDisplayDate } from './inventory';
 import { normalizeIndianMobile, buildWhatsAppChatUrl } from './whatsapp';
-import type { CustomerAccountDetail } from '@/types/database';
+import type { BillBalance, CustomerAccountDetail } from '@/types/database';
 
 export type StatementPeriodType = 'all_time' | 'this_month' | 'last_month' | 'custom';
 
@@ -127,6 +127,34 @@ export function resolveStatementPeriod(
 }
 
 /**
+ * Formats the actual stored bill items into a clean multi-line description.
+ * Includes fruit name, variety/grade, quantity (Box/Boxes), rate, and line total.
+ * Returns null if no stored items are available.
+ */
+export function formatBillItemDetails(bill: BillBalance): string | null {
+  const items = bill.items;
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  const lines = items.map((item, idx) => {
+    const numPrefix = items.length > 1 ? `${idx + 1}. ` : '';
+    const fruit = item.fruit_name_snapshot?.trim() || 'Fruit';
+    const variety = item.variety_name_snapshot?.trim()
+      ? ` (${item.variety_name_snapshot.trim()})`
+      : '';
+    const boxUnit = item.boxes === 1 ? 'Box' : 'Boxes';
+    const qty = `${item.boxes} ${boxUnit}`;
+    const rate = `Rs. ${formatIndianCurrency(item.sell_rate)}`;
+    const lineTotal = `Rs. ${formatIndianCurrency(item.line_total)}`;
+
+    return `${numPrefix}${fruit}${variety} - ${qty} @ ${rate} = ${lineTotal}`;
+  });
+
+  return lines.join('\n');
+}
+
+/**
  * Builds the complete chronological statement data from customer ledger detail.
  * - Accurately computes opening balance as of FromDate.
  * - Computes running balance across all chronological entries.
@@ -176,14 +204,23 @@ export function buildCustomerStatementData(
 
   // 2. Bills (Sales)
   for (const b of detail.bills) {
+    const itemDetails = formatBillItemDetails(b);
+
     if (b.status === 'cancelled') {
+      const cancelHeader = b.cancel_reason
+        ? `[CANCELLED • Reason: ${b.cancel_reason}]`
+        : '[CANCELLED]';
+      const desc = itemDetails
+        ? `${cancelHeader}\n${itemDetails}`
+        : `${cancelHeader} Fruit Sale Invoice`;
+
       rawTimeline.push({
         id: `bill:${b.bill_id}`,
         date: b.bill_date,
         createdAt: b.created_at,
         kind: 'bill',
         refNo: b.bill_no,
-        description: `Cancelled Bill${b.cancel_reason ? `: ${b.cancel_reason}` : ''}`,
+        description: desc,
         debit: 0,
         credit: 0,
         runningBalance: 0,
@@ -191,13 +228,16 @@ export function buildCustomerStatementData(
         note: b.note,
       });
     } else {
+      const desc = itemDetails || `Fruit Sale Invoice (${b.payment_status.toUpperCase()})`;
+      const fullDesc = b.note ? `${desc}\nNote: ${b.note}` : desc;
+
       rawTimeline.push({
         id: `bill:${b.bill_id}`,
         date: b.bill_date,
         createdAt: b.created_at,
         kind: 'bill',
         refNo: b.bill_no,
-        description: `Fruit Sale Invoice (${b.payment_status.toUpperCase()})`,
+        description: fullDesc,
         debit: b.subtotal,
         credit: 0,
         runningBalance: 0,
@@ -507,7 +547,7 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
       num,
       formatDisplayDate(l.date),
       l.refNo,
-      l.note ? `${l.description} (${l.note})` : l.description,
+      l.description,
       debitText,
       creditText,
       balanceText,
@@ -540,6 +580,7 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
       lineColor: [226, 232, 240],
       lineWidth: 0.15,
       overflow: 'linebreak',
+      valign: 'top',
     },
     headStyles: {
       fillColor: primaryGreen,
@@ -547,18 +588,19 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
       fontStyle: 'bold',
       fontSize: 8,
       halign: 'left',
+      valign: 'middle',
     },
     alternateRowStyles: {
       fillColor: [250, 252, 250],
     },
     columnStyles: {
       0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 22, halign: 'center' },
-      2: { cellWidth: 28, halign: 'left', fontStyle: 'bold' },
+      1: { cellWidth: 20, halign: 'center' },
+      2: { cellWidth: 26, halign: 'left', fontStyle: 'bold' },
       3: { cellWidth: 'auto', halign: 'left' },
-      4: { cellWidth: 24, halign: 'right' },
-      5: { cellWidth: 24, halign: 'right' },
-      6: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+      4: { cellWidth: 23, halign: 'right' },
+      5: { cellWidth: 23, halign: 'right' },
+      6: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
     },
     didDrawPage: (data) => {
       // Footer on every page

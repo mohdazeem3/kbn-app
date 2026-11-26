@@ -1,6 +1,140 @@
 import { supabase } from '@/lib/supabase';
 import { appCache, TTL } from './cache';
-import type { BillBalance, DashboardData, DashboardOverview } from '@/types/database';
+import type {
+  BillBalance,
+  DashboardCollectionsBreakdown,
+  DashboardData,
+  DashboardOverview,
+} from '@/types/database';
+
+export interface RawPaymentAllocationForBreakdown {
+  id: string;
+  amount: number | string;
+  status: string;
+  opening_balance_id?: string | null;
+  bill_id?: string | null;
+  bills?: {
+    id?: string;
+    bill_date?: string;
+    status?: string;
+  } | Array<{
+    id?: string;
+    bill_date?: string;
+    status?: string;
+  }> | null;
+}
+
+export interface RawCustomerPaymentForBreakdown {
+  id: string;
+  amount: number | string;
+  mode: string;
+  payment_date: string;
+  payment_origin?: string | null;
+  status: string;
+  customer_payment_allocations?: RawPaymentAllocationForBreakdown[] | null;
+}
+
+export function calculateCollectionsBreakdown(
+  payments: RawCustomerPaymentForBreakdown[],
+  todayDate: string
+): DashboardCollectionsBreakdown {
+  let cashFromTodayBills = 0;
+  let cashFromOldDues = 0;
+  let cashUnclassified = 0;
+
+  let upiFromTodayBills = 0;
+  let upiFromOldDues = 0;
+  let upiUnclassified = 0;
+
+  for (const payment of payments) {
+    if (payment.status !== 'active') continue;
+    const payAmt = Number(payment.amount) || 0;
+    const mode = payment.mode === 'upi' ? 'upi' : 'cash';
+
+    const activeAllocs = (payment.customer_payment_allocations ?? []).filter(
+      (a) => a.status === 'active'
+    );
+
+    if (activeAllocs.length === 0) {
+      if (mode === 'cash') cashUnclassified += payAmt;
+      else upiUnclassified += payAmt;
+      continue;
+    }
+
+    let allocatedTotal = 0;
+    for (const alloc of activeAllocs) {
+      const allocAmt = Number(alloc.amount) || 0;
+      allocatedTotal += allocAmt;
+
+      let isTodayBill = false;
+      let isOldDue = false;
+
+      if (alloc.opening_balance_id) {
+        // Customer opening balances represent past outstanding debt
+        isOldDue = true;
+      } else if (alloc.bill_id) {
+        const bill = Array.isArray(alloc.bills) ? alloc.bills[0] : alloc.bills;
+        const billDate = bill?.bill_date;
+        if (billDate === todayDate) {
+          isTodayBill = true;
+        } else if (billDate && billDate < todayDate) {
+          isOldDue = true;
+        } else if (billDate) {
+          isOldDue = true;
+        } else {
+          // Bill was not found or has no date
+          isOldDue = false;
+        }
+      }
+
+      if (mode === 'cash') {
+        if (isTodayBill) {
+          cashFromTodayBills += allocAmt;
+        } else if (isOldDue) {
+          cashFromOldDues += allocAmt;
+        } else {
+          cashUnclassified += allocAmt;
+        }
+      } else {
+        if (isTodayBill) {
+          upiFromTodayBills += allocAmt;
+        } else if (isOldDue) {
+          upiFromOldDues += allocAmt;
+        } else {
+          upiUnclassified += allocAmt;
+        }
+      }
+    }
+
+    // Remainder of payment that wasn't allocated
+    const unallocatedRemainder = Math.max(0, Math.round((payAmt - allocatedTotal) * 100) / 100);
+    if (unallocatedRemainder > 0) {
+      if (mode === 'cash') {
+        cashUnclassified += unallocatedRemainder;
+      } else {
+        upiUnclassified += unallocatedRemainder;
+      }
+    }
+  }
+
+  const roundedCashToday = Math.round(cashFromTodayBills * 100) / 100;
+  const roundedCashOld = Math.round(cashFromOldDues * 100) / 100;
+  const roundedCashUnclass = Math.round(cashUnclassified * 100) / 100;
+
+  const roundedUpiToday = Math.round(upiFromTodayBills * 100) / 100;
+  const roundedUpiOld = Math.round(upiFromOldDues * 100) / 100;
+  const roundedUpiUnclass = Math.round(upiUnclassified * 100) / 100;
+
+  return {
+    cash_from_today_bills: roundedCashToday,
+    cash_from_old_dues: roundedCashOld,
+    cash_unclassified: roundedCashUnclass,
+    upi_from_today_bills: roundedUpiToday,
+    upi_from_old_dues: roundedUpiOld,
+    upi_unclassified: roundedUpiUnclass,
+    total_unclassified: Math.round((roundedCashUnclass + roundedUpiUnclass) * 100) / 100,
+  };
+}
 
 export const SHOP_TIMEZONE = 'Asia/Kolkata';
 
@@ -121,6 +255,40 @@ export async function getDashboardData(
         throw formatDashboardError(billsRes.error, 'Could not load latest sales.');
       }
 
+      const overview = normalizeOverview(overviewRes.data as DashboardOverview);
+      const summaryDate = overview.summary_date;
+
+      let collectionsBreakdown: DashboardCollectionsBreakdown = {
+        cash_from_today_bills: 0,
+        cash_from_old_dues: 0,
+        cash_unclassified: overview.today_cash_received,
+        upi_from_today_bills: 0,
+        upi_from_old_dues: 0,
+        upi_unclassified: overview.today_upi_received,
+        total_unclassified: overview.today_cash_received + overview.today_upi_received,
+      };
+
+      try {
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('customer_payments')
+          .select(
+            'id, amount, mode, payment_date, payment_origin, status, customer_payment_allocations(id, amount, status, opening_balance_id, bill_id, bills(id, bill_date, status))'
+          )
+          .eq('payment_date', summaryDate)
+          .eq('status', 'active');
+
+        if (!paymentsError && paymentsData) {
+          collectionsBreakdown = calculateCollectionsBreakdown(
+            paymentsData as RawCustomerPaymentForBreakdown[],
+            summaryDate
+          );
+        } else if (paymentsError) {
+          console.warn('Could not query customer payments for breakdown:', paymentsError);
+        }
+      } catch (err) {
+        console.warn('Could not calculate collections breakdown; using fallback', err);
+      }
+
       const latestBills: BillBalance[] = ((billsRes.data ?? []) as BillBalance[]).map((b) => ({
         ...b,
         subtotal: Number(b.subtotal),
@@ -129,7 +297,8 @@ export async function getDashboardData(
       }));
 
       return {
-        overview: normalizeOverview(overviewRes.data as DashboardOverview),
+        overview,
+        collectionsBreakdown,
         latestBills,
       };
     },
