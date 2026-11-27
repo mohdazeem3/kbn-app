@@ -138,17 +138,27 @@ export function formatBillItemDetails(bill: BillBalance): string | null {
   }
 
   const lines = items.map((item, idx) => {
-    const numPrefix = items.length > 1 ? `${idx + 1}. ` : '';
-    const fruit = item.fruit_name_snapshot?.trim() || 'Fruit';
-    const variety = item.variety_name_snapshot?.trim()
-      ? ` (${item.variety_name_snapshot.trim()})`
-      : '';
+    const numPrefix = `${idx + 1}. `;
+    const fruit = (item.fruit_name_snapshot || '').trim() || 'Fruit';
+    const varietyRaw = (item.variety_name_snapshot || '').trim();
+    const variety =
+      varietyRaw && varietyRaw.toLowerCase() !== fruit.toLowerCase()
+        ? ` (${varietyRaw})`
+        : '';
     const boxUnit = item.boxes === 1 ? 'Box' : 'Boxes';
     const qty = `${item.boxes} ${boxUnit}`;
-    const rate = `Rs. ${formatIndianCurrency(item.sell_rate)}`;
-    const lineTotal = `Rs. ${formatIndianCurrency(item.line_total)}`;
+    const rateVal = Number(item.sell_rate);
+    const totalVal = Number(item.line_total);
+    const rateStr = `Rs. ${rateVal.toLocaleString('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`;
+    const totalStr = `Rs. ${totalVal.toLocaleString('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`;
 
-    return `${numPrefix}${fruit}${variety} - ${qty} @ ${rate} = ${lineTotal}`;
+    return `${numPrefix}${fruit}${variety} — ${qty} × ${rateStr} = ${totalStr}`;
   });
 
   return lines.join('\n');
@@ -405,7 +415,7 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const marginX = 14;
+  const marginX = 10;
 
   // Colors
   const primaryGreen: [number, number, number] = [27, 77, 62]; // Forest Green #1B4D3E
@@ -569,13 +579,15 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
 
   autoTable(doc, {
     startY: summaryBoxY + summaryBoxH + 4,
+    margin: { left: marginX, right: marginX, top: 16, bottom: 14 },
     head: [['#', 'Date', 'Reference', 'Description', 'Debit (Rs.)', 'Credit (Rs.)', 'Balance (Rs.)']],
     body: tableData,
     theme: 'grid',
+    rowPageBreak: 'auto',
     styles: {
       font: 'helvetica',
-      fontSize: 8,
-      cellPadding: 2.2,
+      fontSize: 7.5,
+      cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 },
       textColor: darkText,
       lineColor: [226, 232, 240],
       lineWidth: 0.15,
@@ -594,32 +606,36 @@ export function generateCustomerStatementPdf(statement: StatementData): jsPDF {
       fillColor: [250, 252, 250],
     },
     columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 20, halign: 'center' },
-      2: { cellWidth: 26, halign: 'left', fontStyle: 'bold' },
+      0: { cellWidth: 6, halign: 'center' },
+      1: { cellWidth: 17, halign: 'center' },
+      2: { cellWidth: 22, halign: 'left', fontStyle: 'bold' },
       3: { cellWidth: 'auto', halign: 'left' },
-      4: { cellWidth: 23, halign: 'right' },
-      5: { cellWidth: 23, halign: 'right' },
-      6: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
-    },
-    didDrawPage: (data) => {
-      // Footer on every page
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...mutedText);
-
-      // Left footer
-      doc.text(
-        'KBN FRUITS AND TRADERS • Koyambedu Market • Computer Generated Statement',
-        marginX,
-        pageHeight - 8
-      );
-
-      // Right footer: Page X of Y
-      const str = `Page ${data.pageNumber}`;
-      doc.text(str, pageWidth - marginX, pageHeight - 8, { align: 'right' });
+      4: { cellWidth: 19.5, halign: 'right' },
+      5: { cellWidth: 19.5, halign: 'right' },
+      6: { cellWidth: 21, halign: 'right', fontStyle: 'bold' },
     },
   });
+
+  // Footer on every page with true total count: Page X of Y
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...mutedText);
+
+    // Left footer
+    doc.text(
+      'KBN FRUITS AND TRADERS • Koyambedu Market • Computer Generated Statement',
+      marginX,
+      pageHeight - 8
+    );
+
+    // Right footer: Page X of Y
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - marginX, pageHeight - 8, {
+      align: 'right',
+    });
+  }
 
   return doc;
 }
