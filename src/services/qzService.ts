@@ -259,6 +259,18 @@ export function buildThermalReceiptHtml(receiptContentHtml: string): string {
       color: #000000 !important;
       -webkit-text-fill-color: #000000 !important;
     }
+    #printable-thermal-receipt img {
+      display: block !important;
+      margin: 0 auto 6px auto !important;
+      max-width: 65px !important;
+      max-height: 65px !important;
+      width: 65px !important;
+      height: 65px !important;
+      object-fit: contain !important;
+      border-radius: 50% !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     #printable-thermal-receipt .border-stone-800,
     #printable-thermal-receipt .border-stone-500,
     #printable-thermal-receipt .border-stone-400,

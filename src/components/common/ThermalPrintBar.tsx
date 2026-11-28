@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Check,
+  Download,
   Loader2,
   Printer,
   RefreshCw,
@@ -16,9 +17,15 @@ interface ThermalPrintBarProps {
   qz: ReturnType<typeof useQzThermalPrinter>;
   onClose: () => void;
   whatsappAction?: ReactNode;
+  onDownloadPdf?: () => void;
 }
 
-export function ThermalPrintBar({ qz, onClose, whatsappAction }: ThermalPrintBarProps) {
+export function ThermalPrintBar({
+  qz,
+  onClose,
+  whatsappAction,
+  onDownloadPdf,
+}: ThermalPrintBarProps) {
   const [selectedPrinter, setSelectedPrinter] = useState<string>(qz.confirmedPrinter || '');
   const { showConfig, availablePrinters, isLoadingPrinters, refreshPrinters, confirmedPrinter } = qz;
 
@@ -90,6 +97,19 @@ export function ThermalPrintBar({ qz, onClose, whatsappAction }: ThermalPrintBar
         {/* Buttons on the right */}
         <div className="flex flex-wrap items-center gap-2">
           {whatsappAction}
+
+          {onDownloadPdf && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon={Download}
+              onClick={onDownloadPdf}
+              title="Download official bill receipt as PDF"
+            >
+              Download PDF
+            </Button>
+          )}
 
           <Button
             type="button"

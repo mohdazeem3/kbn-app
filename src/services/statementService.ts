@@ -50,9 +50,9 @@ export interface StatementData {
 
 export const KBN_SHOP_INFO = {
   name: 'KBN FRUITS AND TRADERS',
-  tagline: 'Commission Agent & Wholesale Fruit Merchant',
-  address: 'T/A-18, 19, 25, Anna Fruit Market, Koyambedu, Chennai - 600092',
-  phone: '+91 98765 43210',
+  tagline: 'Wholesale Fruit Merchant',
+  address: 'T/B 43,ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092',
+  phone: '+91-6383842405',
 };
 
 /**
@@ -664,8 +664,8 @@ export function generateStatementWhatsAppMessage(statement: StatementData): stri
   const closing = formatIndianCurrency(statement.closingBalance);
 
   const lines = [
-    '🍍 *KBN FRUITS AND TRADERS* 🍍',
-    'T/A-18,19,25, Anna Fruit Market, Koyambedu',
+    '🍍 *KBN FRUITS* 🍍',
+    'T/B 43,ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092',
     separator,
     '📋 *CUSTOMER ACCOUNT STATEMENT*',
     `👤 Customer: *${custName}*`,

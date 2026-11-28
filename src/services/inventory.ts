@@ -28,6 +28,8 @@ interface RawBatchJoinRow {
 interface PostgrestErrorLike {
   code?: string;
   message?: string;
+  details?: string | null;
+  hint?: string | null;
 }
 
 function formatInventoryError(error: PostgrestErrorLike | null, fallback: string): Error {
@@ -254,27 +256,22 @@ export async function listStockBatches(options?: {
   );
 }
 
-interface PostgrestErrorLike {
-  message: string;
-  details?: string | null;
-  hint?: string | null;
-  code?: string | null;
-}
-
-interface PagedQueryResult<T> {
-  data: T[] | null;
-  error: PostgrestErrorLike | null;
-}
-
 interface HistoricalBillItemRow {
   id: string;
   bill_id: string;
   boxes: number;
-  bills: {
-    id: string;
-    bill_date: string;
-    status: string;
-  } | null;
+  bills:
+    | {
+        id: string;
+        bill_date: string;
+        status: string;
+      }
+    | {
+        id: string;
+        bill_date: string;
+        status: string;
+      }[]
+    | null;
   bill_item_batch_allocations: {
     id: string;
     batch_id: string;
@@ -286,22 +283,28 @@ interface HistoricalReturnItemRow {
   id: string;
   batch_id: string;
   boxes: number;
-  bill_returns: {
-    id: string;
-    return_date: string;
-  } | null;
+  bill_returns:
+    | {
+        id: string;
+        return_date: string;
+      }
+    | {
+        id: string;
+        return_date: string;
+      }[]
+    | null;
 }
 
 async function fetchAllPages<T>(
-  queryFn: (from: number, to: number) => PromiseLike<PagedQueryResult<T>>
-): Promise<PagedQueryResult<T>> {
+  queryFn: (from: number, to: number) => PromiseLike<{ data: unknown; error: PostgrestErrorLike | null }>
+): Promise<{ data: T[]; error: PostgrestErrorLike | null }> {
   const pageSize = 1000;
   let all: T[] = [];
   let from = 0;
   while (true) {
     const res = await queryFn(from, from + pageSize - 1);
-    if (res.error) return res;
-    const batch = res.data ?? [];
+    if (res.error) return { data: all, error: res.error };
+    const batch = (res.data ?? []) as T[];
     all = all.concat(batch);
     if (batch.length < pageSize) break;
     from += pageSize;

@@ -8,6 +8,8 @@ import { WhatsAppShareModal } from '@/components/sales/WhatsAppShareModal';
 import { normalizeIndianMobile } from '@/services/whatsapp';
 import { ThermalPrintBar } from '@/components/common/ThermalPrintBar';
 import { useQzThermalPrinter } from '@/services/qzService';
+import { KBN_LOGO_DATA_URL } from '@/assets/kbnLogoBase64';
+import { downloadBillReceiptPdf } from '@/services/receiptPdfService';
 import type { BillDetail } from '@/types/database';
 
 export interface CustomerBalanceSummary {
@@ -221,6 +223,14 @@ export function PrintableBillModal({
             <ThermalPrintBar
               qz={qz}
               onClose={onClose}
+              onDownloadPdf={() => {
+                if (detail) {
+                  downloadBillReceiptPdf(detail, {
+                    balanceSummary: resolvedBalance,
+                    paymentBreakdown,
+                  });
+                }
+              }}
               whatsappAction={
                 <Button
                   type="button"
@@ -245,16 +255,32 @@ export function PrintableBillModal({
                   letterSpacing: '-0.02em',
                 }}
               >
-                {/* Shop Header */}
-                <div className="text-center space-y-0.5 pb-2">
-                  <h1 className="text-sm font-black uppercase tracking-wider text-black">
+                {/* Shop Header with Official Logo */}
+                <div className="text-center space-y-1 pb-2">
+                  <div className="flex justify-center pb-1">
+                    <img
+                      src={KBN_LOGO_DATA_URL}
+                      alt="KBN Fruits & Traders Logo"
+                      className="h-20 w-20 object-contain rounded-full shadow-sm"
+                      style={{
+                        display: 'block',
+                        margin: '0 auto',
+                        maxWidth: '80px',
+                        maxHeight: '80px',
+                        aspectRatio: '1 / 1',
+                        objectFit: 'contain',
+                      }}
+                    />
+                  </div>
+
+                  <h1 className="text-2xl font-black uppercase tracking-wider text-black">
                     KBN FRUITS
                   </h1>
 
-                  <p className="text-[10px] font-semibold text-black">
+                  <p className="text-[12px] font-semibold text-black">
                     T/B 43, ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092
                   </p>
-                  <p className="text-[10px] font-semibold text-black">
+                  <p className="text-[12px] font-semibold text-black">
                     Phone: +91-6383842405
                   </p>
                 </div>

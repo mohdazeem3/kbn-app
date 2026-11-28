@@ -158,8 +158,8 @@ export function generateWhatsAppInvoiceMessage({
   const closingBal = formatIndianAmount(Math.max(0, closingBalance));
 
   const lines = [
-    '🍍 KBN FRUITS AND TRADERS 🍍',
-    'T/A-18,19,25, ANNA FRUITS MARKET, KOYAMBEDU',
+    '🍍 KBN FRUITS 🍍',
+    'T/B 43,ANNA FRUITS MARKET, KOYAMBEDU, CHENNAI - 600092',
     separator,
     `🧾 INVOICE #${cleanBillNo}`,
     `📅 Date: ${formattedDate}`,

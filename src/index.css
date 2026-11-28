@@ -89,6 +89,20 @@
     visibility: visible !important;
   }
 
+  #printable-thermal-receipt img {
+    visibility: visible !important;
+    display: block !important;
+    margin: 0 auto 6px auto !important;
+    max-width: 65px !important;
+    max-height: 65px !important;
+    width: 65px !important;
+    height: 65px !important;
+    object-fit: contain !important;
+    border-radius: 50% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   /* TVS RP 3200 Lite has 72mm printable width on standard 80mm paper roll */
   #printable-thermal-receipt {
     position: absolute !important;
