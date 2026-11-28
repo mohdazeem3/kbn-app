@@ -205,6 +205,11 @@ export interface StockBatchView extends AvailableStockBatch {
   delivery_purchase_amount: number;
   delivery_amount_paid: number;
   delivery_outstanding_amount: number;
+  // Historical tracking fields (populated when asOfDate is selected)
+  gross_boxes_sold?: number;
+  boxes_returned?: number;
+  is_historical?: boolean;
+  as_of_date?: string;
 }
 
 export type PaymentMode = 'cash' | 'upi';

@@ -187,8 +187,20 @@ export async function receiveStockDelivery(input: ReceiveStockDeliveryInput): Pr
 /**
  * Loads active delivery stock batches enriched with delivery-level payment status
  * by joining available_stock_batches and delivery_balances views.
+ * Supports viewing historical stock as of any past date.
  */
-export async function listStockBatches(options?: { forceRefresh?: boolean }): Promise<StockBatchView[]> {
+export async function listStockBatches(options?: {
+  forceRefresh?: boolean;
+  asOfDate?: string | null;
+}): Promise<StockBatchView[]> {
+  const todayYmd = getLocalIsoDate();
+  const asOf = options?.asOfDate?.trim() || null;
+  const isHistorical = Boolean(asOf && asOf < todayYmd);
+
+  if (isHistorical && asOf) {
+    return listHistoricalStockBatches(asOf, options);
+  }
+
   return appCache.fetch(
     'stock_batches',
     async () => {
@@ -231,6 +243,213 @@ export async function listStockBatches(options?: { forceRefresh?: boolean }): Pr
           purchase_rate: Number(batch.purchase_rate),
           purchase_amount: Number(batch.purchase_amount),
           remaining_stock_value: Number(batch.remaining_stock_value),
+          delivery_payment_status: del?.payment_status ?? 'unpaid',
+          delivery_purchase_amount: Number(del?.purchase_amount ?? batch.purchase_amount),
+          delivery_amount_paid: Number(del?.amount_paid ?? 0),
+          delivery_outstanding_amount: Number(del?.outstanding_amount ?? batch.purchase_amount),
+        };
+      });
+    },
+    { ttlMs: TTL.STOCK, tags: ['stock'], forceRefresh: options?.forceRefresh }
+  );
+}
+
+interface PostgrestErrorLike {
+  message: string;
+  details?: string | null;
+  hint?: string | null;
+  code?: string | null;
+}
+
+interface PagedQueryResult<T> {
+  data: T[] | null;
+  error: PostgrestErrorLike | null;
+}
+
+interface HistoricalBillItemRow {
+  id: string;
+  bill_id: string;
+  boxes: number;
+  bills: {
+    id: string;
+    bill_date: string;
+    status: string;
+  } | null;
+  bill_item_batch_allocations: {
+    id: string;
+    batch_id: string;
+    boxes: number;
+  }[];
+}
+
+interface HistoricalReturnItemRow {
+  id: string;
+  batch_id: string;
+  boxes: number;
+  bill_returns: {
+    id: string;
+    return_date: string;
+  } | null;
+}
+
+async function fetchAllPages<T>(
+  queryFn: (from: number, to: number) => PromiseLike<PagedQueryResult<T>>
+): Promise<PagedQueryResult<T>> {
+  const pageSize = 1000;
+  let all: T[] = [];
+  let from = 0;
+  while (true) {
+    const res = await queryFn(from, from + pageSize - 1);
+    if (res.error) return res;
+    const batch = res.data ?? [];
+    all = all.concat(batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
+/**
+ * Calculates historical stock position as of any given past date:
+ * - Includes only deliveries received on or before asOfDate
+ * - Includes only sales from active bills on or before asOfDate
+ * - Restores customer returns occurring on or before asOfDate
+ * - Accurately reconstructs historical remaining boxes and stock values
+ * - Handles pagination beyond Supabase 1,000-row limit
+ */
+export async function listHistoricalStockBatches(
+  asOfDate: string,
+  options?: { forceRefresh?: boolean }
+): Promise<StockBatchView[]> {
+  const cacheKey = `stock_batches:historical:${asOfDate}`;
+  return appCache.fetch(
+    cacheKey,
+    async () => {
+      // 1. Fetch batches and delivery balances received on or before asOfDate
+      // 2. Fetch bill_items with active bills on or before asOfDate
+      // 3. Fetch bill_return_items with returns on or before asOfDate
+      const [batchesRes, deliveriesRes, allocRes, returnsRes] = await Promise.all([
+        fetchAllPages<AvailableStockBatch>((from, to) =>
+          supabase
+            .from('available_stock_batches')
+            .select(
+              'batch_id, delivery_id, delivery_no, received_date, line_no, fruit_id, fruit_name, variety_id, variety_name, default_sell_rate, supplier_id, supplier_name, supplier_active, boxes_received, boxes_remaining, boxes_sold, purchase_rate, purchase_amount, remaining_stock_value, delivery_note, created_at'
+            )
+            .lte('received_date', asOfDate)
+            .order('received_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .order('line_no', { ascending: true })
+            .range(from, to)
+        ),
+        fetchAllPages<DeliveryBalance>((from, to) =>
+          supabase
+            .from('delivery_balances')
+            .select(
+              'delivery_id, delivery_no, supplier_id, supplier_name, supplier_active, fruit_id, fruit_name, received_date, boxes_received, boxes_remaining, purchase_amount, amount_paid, outstanding_amount, payment_status, status, cancelled_at, cancel_reason, note, created_at'
+            )
+            .eq('status', 'active')
+            .lte('received_date', asOfDate)
+            .range(from, to)
+        ),
+        fetchAllPages<HistoricalBillItemRow>((from, to) =>
+          supabase
+            .from('bill_items')
+            .select(`
+              id,
+              bill_id,
+              boxes,
+              bills!inner(
+                id,
+                bill_date,
+                status
+              ),
+              bill_item_batch_allocations(
+                id,
+                batch_id,
+                boxes
+              )
+            `)
+            .lte('bills.bill_date', asOfDate)
+            .eq('bills.status', 'active')
+            .range(from, to)
+        ),
+        fetchAllPages<HistoricalReturnItemRow>((from, to) =>
+          supabase
+            .from('bill_return_items')
+            .select(`
+              id,
+              batch_id,
+              boxes,
+              bill_returns!inner(
+                id,
+                return_date
+              )
+            `)
+            .lte('bill_returns.return_date', asOfDate)
+            .range(from, to)
+        ),
+      ]);
+
+      if (batchesRes.error) {
+        throw formatInventoryError(batchesRes.error, 'Could not load historical stock batches.');
+      }
+      if (deliveriesRes.error) {
+        throw formatInventoryError(deliveriesRes.error, 'Could not load delivery balances.');
+      }
+      if (allocRes.error) {
+        throw formatInventoryError(allocRes.error, 'Could not load historical sales allocations.');
+      }
+
+      // Map gross sold by batch_id
+      const grossSoldMap = new Map<string, number>();
+      for (const item of allocRes.data ?? []) {
+        for (const alloc of item.bill_item_batch_allocations ?? []) {
+          const bId = alloc.batch_id;
+          const bxs = Number(alloc.boxes) || 0;
+          grossSoldMap.set(bId, (grossSoldMap.get(bId) || 0) + bxs);
+        }
+      }
+
+      // Map returns by batch_id
+      const returnsMap = new Map<string, number>();
+      if (!returnsRes.error && returnsRes.data) {
+        for (const ret of returnsRes.data) {
+          const bId = ret.batch_id;
+          const bxs = Number(ret.boxes) || 0;
+          returnsMap.set(bId, (returnsMap.get(bId) || 0) + bxs);
+        }
+      }
+
+      // Map deliveries
+      const deliveryMap = new Map<string, DeliveryBalance>();
+      for (const d of (deliveriesRes.data ?? []) as DeliveryBalance[]) {
+        deliveryMap.set(d.delivery_id, d);
+      }
+
+      // Reconstruct historical batch positions
+      return ((batchesRes.data ?? []) as AvailableStockBatch[]).map((batch) => {
+        const del = deliveryMap.get(batch.delivery_id);
+        const boxesReceived = Number(batch.boxes_received);
+        const purchaseRate = Number(batch.purchase_rate);
+
+        const grossSold = grossSoldMap.get(batch.batch_id) || 0;
+        const returned = returnsMap.get(batch.batch_id) || 0;
+        const netSold = Math.max(0, grossSold - returned);
+        const historicalRemaining = Math.max(0, boxesReceived - netSold);
+        const historicalStockValue = Math.round(historicalRemaining * purchaseRate * 100) / 100;
+
+        return {
+          ...batch,
+          boxes_received: boxesReceived,
+          boxes_remaining: historicalRemaining,
+          boxes_sold: netSold,
+          gross_boxes_sold: grossSold,
+          boxes_returned: returned,
+          is_historical: true,
+          as_of_date: asOfDate,
+          purchase_rate: purchaseRate,
+          purchase_amount: Number(batch.purchase_amount),
+          remaining_stock_value: historicalStockValue,
           delivery_payment_status: del?.payment_status ?? 'unpaid',
           delivery_purchase_amount: Number(del?.purchase_amount ?? batch.purchase_amount),
           delivery_amount_paid: Number(del?.amount_paid ?? 0),
